@@ -107,7 +107,7 @@ def _stage_names(plants: pd.DataFrame) -> list[str]:
     return ordered or list(STAGE_ORDER[:1])
 
 
-def _stage_indices(plants: pd.DataFrame, stages: list[str]) -> np.ndarray:
+def _stage_indices(plants: pd.DataFrame, stages: list[str]) -> pd.Series:
     lookup = {name: index for index, name in enumerate(stages)}
     return plants["phenological_stage"].map(lambda name: lookup.get(str(name), len(stages) - 1))
 

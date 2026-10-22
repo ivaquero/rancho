@@ -13,7 +13,7 @@ import hashlib
 import os
 import threading
 import time
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
@@ -43,7 +43,7 @@ def run_id_for(cfg: ScenarioConfig) -> str:
 
 
 @contextmanager
-def _working_directory(path: Path) -> Iterator[None]:
+def _working_directory(path: Path) -> Generator[None]:
     """Run the engine inside *path* so its Parquet log lands next to the scenario."""
     previous = Path.cwd()
     os.chdir(path)
@@ -66,6 +66,10 @@ def _apply_physics(farm: Farm, cfg: ScenarioConfig) -> None:
         et0=physics.et0,
         radiation=physics.radiation,
         disease=physics.disease,
+        # Without an initial focus the SIR engine has nothing to spread from.
+        disease_foci=[(cfg.rows // 2, cfg.cols // 3), (cfg.rows // 3, cfg.cols // 2)],
+        disease_spread_rate=0.12,
+        disease_latency_days=5,
         disease_seed=cfg.seed,
         weed_pressure=physics.weeds,
         weed_seed=cfg.seed,

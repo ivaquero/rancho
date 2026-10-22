@@ -57,7 +57,7 @@ class RunStore:
                 existed = True
         return existed
 
-    def list(self) -> list[dict[str, Any]]:
+    def summaries(self) -> list[dict[str, Any]]:
         """Summaries of all stored runs, newest first."""
         summaries: list[dict[str, Any]] = []
         for path in self.root.glob("*.meta.json"):

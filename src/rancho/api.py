@@ -76,7 +76,7 @@ def create_app(work_root: Path, dist_dir: Path | None = None) -> FastAPI:
 
     @app.get("/api/runs")
     def list_runs() -> list[dict[str, Any]]:
-        return store.list()
+        return store.summaries()
 
     @app.post("/api/runs")
     def create_run(request: RunRequest) -> dict[str, Any]:

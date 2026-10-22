@@ -27,4 +27,7 @@ __pycache__/
 *.zip
 
 .rancho
+.pnpmx
+dist
+node_modules
 runs

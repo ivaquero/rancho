@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Rancho · 农田作物仿真台</title>
+  </head>
+  <body>
+    <div id="app">
+      <canvas id="stage"></canvas>
+
+      <header class="bar bar--top">
+        <div class="brand">
+          <span class="brand__mark">RANCHO</span>
+          <span class="brand__sub">农田作物仿真台</span>
+        </div>
+        <div class="controls">
+          <label class="field">
+            <span>场景</span>
+            <select id="preset"></select>
+          </label>
+          <button id="run" class="btn btn--primary" type="button">运行仿真</button>
+          <span id="status" class="status">正在连接服务…</span>
+        </div>
+      </header>
+
+      <aside class="panel panel--right">
+        <section class="block">
+          <h2>着色通道</h2>
+          <div id="channels" class="chips"></div>
+        </section>
+
+        <section class="block">
+          <h2>色标</h2>
+          <div class="legend">
+            <div id="legend-bar" class="legend__bar"></div>
+            <div class="legend__scale">
+              <span id="legend-low">0</span>
+              <span id="legend-unit"></span>
+              <span id="legend-high">1</span>
+            </div>
+          </div>
+        </section>
+
+        <section class="block">
+          <h2>当日状态</h2>
+          <dl id="metrics" class="metrics"></dl>
+        </section>
+
+        <section class="block">
+          <h2>地块</h2>
+          <dl id="field-info" class="metrics metrics--dim"></dl>
+        </section>
+      </aside>
+
+      <section class="panel panel--chart">
+        <div class="panel__head">
+          <h2>全季轨迹</h2>
+          <span class="panel__hint">拖动时间轴或点击曲线查看当日</span>
+        </div>
+        <div id="chart" class="chart"></div>
+      </section>
+
+      <footer class="bar bar--bottom">
+        <button id="play" class="btn btn--ghost" type="button" aria-label="播放">▶</button>
+        <div class="timeline">
+          <input id="day" type="range" min="0" max="1" value="0" step="1" />
+          <div class="timeline__labels">
+            <span id="day-label">第 1 天</span>
+            <span id="date-label">—</span>
+          </div>
+        </div>
+        <label class="field field--tight">
+          <span>速度</span>
+          <select id="speed">
+            <option value="200">慢</option>
+            <option value="90" selected>常速</option>
+            <option value="35">快</option>
+          </select>
+        </label>
+        <label class="field field--tight">
+          <span>株高夸张</span>
+          <input id="exaggerate" type="range" min="1" max="3" step="0.1" value="1.8" />
+        </label>
+      </footer>
+
+      <div id="tooltip" class="tooltip" hidden></div>
+      <div id="overlay" class="overlay">
+        <div class="overlay__box">
+          <p id="overlay-text">首次加载会运行一次 200 天仿真，约需十秒。</p>
+        </div>
+      </div>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

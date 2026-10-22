@@ -1,0 +1,35 @@
+{
+  "name": "rancho-client",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Rancho 农田仿真前端：Three.js 场景 + p5.js 时序面板",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "lint": "oxlint src",
+    "fmt": "oxfmt src",
+    "fmt:check": "oxfmt --check src"
+  },
+  "dependencies": {
+    "p5": "^2.2.4",
+    "three": "^0.183.0"
+  },
+  "devDependencies": {
+    "@types/three": "^0.186.0",
+    "oxfmt": "^0.18.0",
+    "oxlint": "^1.42.0",
+    "typescript": "^5.9.3",
+    "vite": "^7.1.9"
+  },
+  "devEngines": {
+    "packageManager": {
+      "name": "pnpm",
+      "version": "12.15.0",
+      "onFail": "download"
+    }
+  },
+  "packageManager": "pnpm@12.15.0"
+}
