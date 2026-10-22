@@ -1,0 +1,56 @@
+[project]
+name = "rancho"
+version = "0.1.0"
+description = "矩形网格农田作物仿真台 —— CropForge 引擎 + Three.js 可视化"
+readme = "README.md"
+authors = [
+    { name = "ivaquero", email = "msaintms@outlook.com" }
+]
+requires-python = ">=3.13"
+dependencies = [
+    "cropforge>=1.0.1",
+    "fastapi>=0.159.1",
+    "numpy>=2.5.4",
+    "pandas>=3.0.6",
+    "pyarrow>=26.0.0",
+    "uvicorn[standard]>=0.54.0",
+]
+
+[project.scripts]
+rancho = "rancho.cli:main"
+
+[build-system]
+requires = ["uv_build>=0.13.5,<0.14.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "ruff>=0.17.1",
+    "ty>=0.0.90",
+]
+
+# ---------------------------------------------------------------- ruff ----
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+src = ["src"]
+extend-exclude = ["frontend", "runs", ".rancho"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "C4", "PTH", "RUF"]
+ignore = ["E501", "RUF001", "RUF002", "RUF003"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["rancho"]
+
+[tool.ruff.format]
+quote-style = "double"
+docstring-code-format = true
+
+# ------------------------------------------------------------------ ty ----
+[tool.ty.src]
+include = ["src"]
+
+[tool.ty.rules]
+# CropForge exposes dynamic, dataclass-heavy state objects that resolve to Any.
+unresolved-attribute = "warn"
