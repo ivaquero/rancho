@@ -19,8 +19,6 @@
   },
   "devDependencies": {
     "@types/three": "^0.186.0",
-    "oxfmt": "^0.18.0",
-    "oxlint": "^1.42.0",
     "typescript": "^5.9.3",
     "vite": "^7.1.9"
   },

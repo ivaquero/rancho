@@ -1,19 +1,17 @@
 [project]
 name = "rancho"
 version = "0.1.0"
-description = "矩形网格农田作物仿真台 —— CropForge 引擎 + Three.js 可视化"
+description = "农田作物仿真台"
 readme = "README.md"
-authors = [
-    { name = "ivaquero", email = "msaintms@outlook.com" }
-]
-requires-python = ">=3.13"
+requires-python = ">=3.14"
+authors = [{ name = "ivaquero", email = "msaintms@outlook.com" }]
 dependencies = [
-    "cropforge>=1.0.1",
-    "fastapi>=0.159.1",
-    "numpy>=2.5.4",
-    "pandas>=3.0.6",
-    "pyarrow>=26.0.0",
-    "uvicorn[standard]>=0.54.0",
+  "cropforge>=1.0.1",
+  "fastapi>=0.159.1",
+  "numpy>=2.5.4",
+  "pandas>=3.0.6",
+  "pyarrow>=26.0.0",
+  "uvicorn[standard]>=0.54.0",
 ]
 
 [project.scripts]
@@ -23,16 +21,10 @@ rancho = "rancho.cli:main"
 requires = ["uv_build>=0.13.5,<0.14.0"]
 build-backend = "uv_build"
 
-[dependency-groups]
-dev = [
-    "ruff>=0.17.1",
-    "ty>=0.0.90",
-]
-
 # ---------------------------------------------------------------- ruff ----
 [tool.ruff]
 line-length = 100
-target-version = "py313"
+target-version = "py314"
 src = ["src"]
 extend-exclude = ["frontend", "runs", ".rancho"]
 

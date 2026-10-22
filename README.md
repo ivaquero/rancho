@@ -14,7 +14,14 @@ cd frontend && pnpm install && pnpm build && cd ..
 uv run rancho serve           # http://127.0.0.1:8000/
 ```
 
-前端热更新：
+前端热更新，一条命令把后端和 vite 一起拉起来（Ctrl+C 一起停）：
+
+```bash
+uv run rancho dev             # http://127.0.0.1:5173/，/api 代理到 8000
+```
+
+换端口时前端代理会跟着走：`uv run rancho dev --api-port 8010 --client-port 5180`。
+也可以分两个终端手动起：
 
 ```bash
 uv run rancho serve --no-open &
@@ -108,9 +115,13 @@ flowchart LR
 ## 校验
 
 ```bash
-uv run ruff format src && uv run ruff check src && uv run ty check
+ruff format src && ruff check src && ty check
 cd frontend && pnpm lint && pnpm fmt:check && pnpm typecheck && pnpm build
 ```
+
+`ruff` / `ty` / `oxlint` / `oxfmt` 都不是项目依赖：它们由系统环境提供
+（`scoop install ruff ty oxlint oxfmt`），`uv sync` 与 `pnpm install` 都不会装，
+版本跟随系统而非锁文件。Python 要求 3.14 及以上。
 
 ## 目录
 
@@ -123,7 +134,7 @@ src/rancho/
   frames.py     Parquet → 渲染用 bundle
   api.py        FastAPI
   store.py      内存 + gzip 两级缓存
-  cli.py        serve / simulate / presets
+  cli.py        dev / serve / simulate / presets
 frontend/src/
   scene.ts      Three.js：地形、冠层实例、雨、拾取
   chart.ts      p5.js：全季小多图

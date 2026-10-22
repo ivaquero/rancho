@@ -63,7 +63,7 @@ class RunStore:
         for path in self.root.glob("*.meta.json"):
             try:
                 summaries.append(json.loads(path.read_text(encoding="utf-8")))
-            except (OSError, json.JSONDecodeError):
+            except OSError, json.JSONDecodeError:
                 continue
         summaries.sort(key=lambda item: str(item.get("created_at", "")), reverse=True)
         return summaries
