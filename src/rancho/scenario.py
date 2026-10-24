@@ -8,26 +8,34 @@ engine never fails halfway through a run.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-CropKind = Literal["wheat", "maize"]
-SoilKind = Literal["loam", "clay", "sandy"]
-ClimateKind = Literal["temperate", "continental", "semi-arid"]
+CropKind = Literal["wheat", "maize", "tomato", "cucumber", "lettuce"]
+SoilKind = Literal["loam", "clay", "sandy", "andisol"]
+ClimateKind = Literal["temperate", "continental", "semi-arid", "tropical"]
+WeatherSource = Literal["synthetic", "open-meteo"]
 SoilPattern = Literal["uniform", "gradient", "patches"]
 TerrainKind = Literal["flat", "slope", "undulating"]
 
-#: Canonical phenological stage order shared by the bundled crop plugins.
+#: Canonical phenological stage order shared by all crop plugins.  Only the
+#: stages a crop actually passes through appear in a run; the list is a superset
+#: so that cereals and greenhouse vegetables can share one axis.
 STAGE_ORDER: tuple[str, ...] = (
     "germination",
     "emergence",
+    "seedling",
     "tillering",
     "vegetative",
     "stem_extension",
     "tasseling",
     "silking",
     "anthesis",
+    "flowering",
+    "fruit_set",
+    "fruiting",
     "grain_fill",
     "maturity",
 )
@@ -36,14 +44,45 @@ STAGE_ORDER: tuple[str, ...] = (
 STAGE_LABELS: dict[str, str] = {
     "germination": "萌发",
     "emergence": "出苗",
+    "seedling": "苗期",
     "tillering": "分蘖",
     "vegetative": "营养生长",
     "stem_extension": "拔节",
     "tasseling": "抽雄",
     "silking": "吐丝",
     "anthesis": "开花",
+    "flowering": "开花",
+    "fruit_set": "坐果",
+    "fruiting": "结果采收",
     "grain_fill": "灌浆",
     "maturity": "成熟",
+}
+
+
+@dataclass(frozen=True, slots=True)
+class CropProfile:
+    """What the harvested product *is* — used to turn dry matter into yield.
+
+    Cereals report grain at harvest moisture, so their dry-matter fraction is 1
+    and the harvest index alone does the conversion.  Vegetables are sold fresh:
+    the fruit or leaf is only a few percent dry matter, and part of it never
+    reaches market, so both factors have to be applied on top of the index.
+    """
+
+    label: str
+    species: str
+    dry_matter_fraction: float = 1.0
+    marketable_fraction: float = 1.0
+
+
+#: Crop → product description.  Kept next to the scenario because yield is a
+#: property of what is sold, not of the growth model.
+CROP_PROFILES: dict[str, CropProfile] = {
+    "wheat": CropProfile("小麦", "Triticum aestivum"),
+    "maize": CropProfile("玉米", "Zea mays"),
+    "tomato": CropProfile("番茄", "Solanum lycopersicum", 0.055, 0.92),
+    "cucumber": CropProfile("黄瓜", "Cucumis sativus", 0.045, 0.95),
+    "lettuce": CropProfile("生菜", "Lactuca sativa", 0.050, 0.90),
 }
 
 
@@ -56,6 +95,28 @@ class PhysicsConfig(BaseModel):
     radiation: bool = True
     disease: bool = False
     weeds: bool = False
+
+
+class WeatherConfig(BaseModel):
+    """Where the daily weather series comes from.
+
+    ``synthetic`` regenerates the seeded climate profile in ``climate`` and is
+    fully offline.  ``open-meteo`` pulls the observed window for the scenario's
+    coordinates (:mod:`rancho.weather`) and caches it on disk; ``climate`` then
+    only serves as the fallback when the provider cannot be reached.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    source: WeatherSource = "synthetic"
+    #: Calendar year the sowing day refers to.  Synthetic weather ignores it —
+    #: only real data needs a year to turn a day-of-year into a date.
+    year: int = Field(default=2025, ge=1940, le=2100)
+    timeout_s: float = Field(default=20.0, gt=1.0, le=120.0)
+    #: Degrade to the synthetic climate instead of failing when offline.
+    fallback: bool = True
+    #: Read the on-disk cache only — reproducible, air-gapped runs.
+    offline: bool = False
 
 
 class ScenarioConfig(BaseModel):
@@ -80,16 +141,29 @@ class ScenarioConfig(BaseModel):
     soil_variation: float = Field(default=0.55, ge=0.0, le=1.0)
     climate: ClimateKind = "continental"
     terrain: TerrainKind = "slope"
+    slope_pct: float = Field(default=1.6, ge=0.0, le=20.0)
+    latitude: float = Field(default=28.6, ge=-90.0, le=90.0)
+    longitude: float = Field(default=77.2, ge=-180.0, le=180.0)
     seed: int = Field(default=42, ge=0, le=999_999)
+
+    #: Protected cultivation: a plastic/insect-net cover that keeps rain out and
+    #: a shade net that cuts the radiation reaching the canopy.  ``cover_transmission``
+    #: is the combined PAR transmission of cover *and* shade net (0.55 ≈ clear
+    #: film at 85 % behind a 65 % shade net), applied to every day's radiation.
+    protected: bool = False
+    cover_transmission: float = Field(default=1.0, gt=0.20, le=1.0)
 
     irrigation: bool = True
     irrigation_threshold_pct: float = Field(default=21.0, ge=2.0, le=40.0)
     irrigation_mm: float = Field(default=16.0, ge=1.0, le=60.0)
     irrigation_coverage: float = Field(default=0.58, ge=0.1, le=1.0)
-    harvest_index: float = Field(default=0.38, ge=0.10, le=0.60)
+    #: Share of above-ground dry matter that ends up in the harvested organ.
+    #: Cereals sit near 0.4; a lettuce head is most of the plant, hence 0.9.
+    harvest_index: float = Field(default=0.38, ge=0.10, le=0.90)
     fertiliser_kg_ha: float = Field(default=80.0, ge=0.0, le=400.0)
 
     physics: PhysicsConfig = Field(default_factory=PhysicsConfig)
+    weather: WeatherConfig = Field(default_factory=WeatherConfig)
 
     @property
     def plants_per_m2(self) -> float:
@@ -186,6 +260,110 @@ PRESETS: dict[str, dict[str, object]] = {
             soil_pattern="patches",
             soil_variation=0.4,
             physics=PhysicsConfig(et0=True, radiation=True, disease=True, weeds=True),
+        ),
+    },
+    "salvador-greenhouse": {
+        "label": "萨尔瓦多 · 大棚番茄",
+        "description": (
+            "萨尔瓦多山地缓坡上的竹架大棚：遮阳网 + 防虫网 + 避雨，滴灌番茄，旱季定植、雨季前收完。"
+        ),
+        "config": ScenarioConfig(
+            name="Invernadero El Salvador",
+            rows=18,
+            cols=40,
+            days=130,
+            crop="tomato",
+            variety="Caiman F1",
+            sowing_doy=310,
+            row_spacing_m=0.90,
+            plant_spacing_m=0.45,
+            soil="andisol",
+            soil_pattern="patches",
+            soil_variation=0.45,
+            climate="tropical",
+            terrain="slope",
+            slope_pct=6.0,
+            latitude=13.69,
+            longitude=-89.22,
+            irrigation=True,
+            irrigation_threshold_pct=26.0,
+            irrigation_mm=10.0,
+            irrigation_coverage=0.90,
+            harvest_index=0.32,
+            fertiliser_kg_ha=280.0,
+            protected=True,
+            cover_transmission=0.55,
+            physics=PhysicsConfig(et0=True, radiation=True),
+        ),
+    },
+    "salvador-leafy": {
+        "label": "萨尔瓦多 · 大棚叶菜",
+        "description": (
+            "同一棚架下换茬生菜：60 天短周期，全畦滴灌，看高温季节遮阳对冠层温度与蒸腾的调节。"
+        ),
+        "config": ScenarioConfig(
+            name="Invernadero Hoja",
+            rows=18,
+            cols=40,
+            days=60,
+            crop="lettuce",
+            variety="Salanova",
+            sowing_doy=20,
+            row_spacing_m=0.40,
+            plant_spacing_m=0.30,
+            soil="andisol",
+            soil_pattern="patches",
+            soil_variation=0.40,
+            climate="tropical",
+            terrain="slope",
+            slope_pct=6.0,
+            latitude=13.69,
+            longitude=-89.22,
+            irrigation=True,
+            irrigation_threshold_pct=26.0,
+            irrigation_mm=6.0,
+            irrigation_coverage=0.94,
+            harvest_index=0.78,
+            fertiliser_kg_ha=95.0,
+            protected=True,
+            cover_transmission=0.60,
+            physics=PhysicsConfig(et0=True, radiation=True),
+        ),
+    },
+    "salvador-observed": {
+        "label": "萨尔瓦多 · 大棚番茄（实测气象）",
+        "description": (
+            "同一棚架与农艺参数，气象改用 Open-Meteo 的 2025/26 实测序列："
+            "看真实旱季辐射与昼夜温差下的表现，断网时自动退回合成气候并标注。"
+        ),
+        "config": ScenarioConfig(
+            name="Invernadero Observado",
+            rows=18,
+            cols=40,
+            days=130,
+            crop="tomato",
+            variety="Caiman F1",
+            sowing_doy=310,
+            row_spacing_m=0.90,
+            plant_spacing_m=0.45,
+            soil="andisol",
+            soil_pattern="patches",
+            soil_variation=0.45,
+            climate="tropical",
+            terrain="slope",
+            slope_pct=6.0,
+            latitude=13.69,
+            longitude=-89.22,
+            irrigation=True,
+            irrigation_threshold_pct=26.0,
+            irrigation_mm=10.0,
+            irrigation_coverage=0.90,
+            harvest_index=0.32,
+            fertiliser_kg_ha=280.0,
+            protected=True,
+            cover_transmission=0.55,
+            physics=PhysicsConfig(et0=True, radiation=True),
+            weather=WeatherConfig(source="open-meteo", year=2025),
         ),
     },
 }

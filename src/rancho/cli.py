@@ -1,4 +1,4 @@
-"""Command line entry points: ``rancho dev``, ``rancho serve`` and ``rancho simulate``."""
+"""Command line entry points: ``rancho dev``, ``rancho serve``, ``rancho simulate``."""
 
 from __future__ import annotations
 
@@ -12,6 +12,7 @@ import threading
 import time
 import warnings
 import webbrowser
+from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -69,10 +70,64 @@ def _build_parser() -> argparse.ArgumentParser:
     simulate.add_argument("--rows", type=int, default=None)
     simulate.add_argument("--cols", type=int, default=None)
     simulate.add_argument("--days", type=int, default=None)
+    simulate.add_argument(
+        "--weather",
+        choices=("synthetic", "open-meteo"),
+        default=None,
+        help="气象来源：合成气候或按经纬度取实测",
+    )
+    simulate.add_argument("--year", type=int, default=None, help="实测气象的年份")
+    simulate.add_argument("--offline", action="store_true", help="实测气象只读缓存")
     simulate.add_argument("--out", type=Path, default=None)
     simulate.add_argument("--work-dir", type=Path, default=DEFAULT_WORK_DIR)
 
+    weather = subparsers.add_parser("weather", help="按经纬度拉取开源日尺度气象")
+    weather.add_argument(
+        "--preset", default=None, choices=sorted(PRESETS), help="用场景的坐标与播期"
+    )
+    weather.add_argument("--lat", type=float, default=None)
+    weather.add_argument("--lon", type=float, default=None)
+    weather.add_argument("--start", type=date.fromisoformat, default=None, help="YYYY-MM-DD")
+    weather.add_argument("--days", type=int, default=None)
+    weather.add_argument("--year", type=int, default=None, help="用 --preset 时覆盖年份")
+    weather.add_argument("--protected", action="store_true", help="换算成棚内小气候")
+    weather.add_argument(
+        "--transmission", type=float, default=None, help="棚体透光率（默认取场景值）"
+    )
+    weather.add_argument("--csv", type=Path, default=None, help="另存为 CropForge 气象 CSV")
+    weather.add_argument("--json", action="store_true", help="输出 JSON（含逐日序列）")
+    weather.add_argument("--cache-dir", type=Path, default=None)
+    weather.add_argument("--offline", action="store_true", help="只读缓存，不联网")
+    weather.add_argument("--timeout", type=float, default=20.0)
+
     subparsers.add_parser("presets", help="列出内置场景")
+
+    econ = subparsers.add_parser("econ", help="大棚经济层原型：Mesa 竞价、成本曲线与验证")
+    econ.add_argument("--site", default="tropical", help="气象站点：tropical / temperate")
+    econ.add_argument("--days", type=int, default=28, help="仿真天数（逐小时推进）")
+    econ.add_argument("--seed", type=int, default=42)
+    econ.add_argument(
+        "--tariff",
+        default="farm,cheap",
+        help="逗号分隔的电价情景：farm（农业峰谷）、cheap（谷段优惠）",
+    )
+    econ.add_argument(
+        "--growth",
+        default="cropforge",
+        choices=("cropforge", "analytic", "farm"),
+        help=(
+            "产量来源：farm（真跑 CropForge 农场并与市场迭代）/ cropforge（插件 + "
+            "Beer-Lambert）/ analytic（饱和光响应代理）"
+        ),
+    )
+    econ.add_argument(
+        "--farm-passes",
+        type=int,
+        default=3,
+        help="--growth farm 时市场与农场交替迭代的最大轮数（收敛即提前停止）",
+    )
+    econ.add_argument("--out-dir", type=Path, default=Path("runs/econ"))
+    econ.add_argument("--no-open", action="store_true", help="不自动打开 HTML 报告")
     return parser
 
 
@@ -209,6 +264,19 @@ def _simulate(args: argparse.Namespace) -> int:
     }
     if overrides:
         config = config.model_copy(update=overrides)
+    weather_overrides = {
+        key: value
+        for key, value in {
+            "source": args.weather,
+            "year": args.year,
+            "offline": args.offline or None,
+        }.items()
+        if value is not None
+    }
+    if weather_overrides:
+        config = config.model_copy(
+            update={"weather": config.weather.model_copy(update=weather_overrides)}
+        )
 
     bundle: dict[str, Any] = run_scenario(config, Path(args.work_dir).resolve())
     out_path = Path(args.out) if args.out is not None else Path(f"runs/{bundle['id']}.json")
@@ -217,9 +285,12 @@ def _simulate(args: argparse.Namespace) -> int:
 
     meta = bundle["meta"]
     last = bundle["series"][-1]
+    weather = meta.get("weather") or {}
     print(f"scenario : {meta['name']} ({meta['crop']}, {meta['variety']})")
     print(f"grid     : {meta['rows']} × {meta['cols']} cells, {meta['area_ha']} ha")
     print(f"horizon  : {meta['days']} days, seed {meta['seed']}, {meta['elapsed_s']} s")
+    if weather:
+        print(f"weather  : {weather['label']} · {weather['start']} → {weather['end']}")
     print(f"final    : LAI {last['lai']:.2f}, 生物量 {last['biomass']:.1f} g/株")
     print(
         f"yield    : {bundle['yield']['t_per_ha']:.2f} t/ha (收获指数 {bundle['yield']['harvest_index']:.2f} 估算)"
@@ -228,10 +299,164 @@ def _simulate(args: argparse.Namespace) -> int:
     return 0
 
 
+def _print_weather(series: Any) -> None:
+    meta = series.meta()
+    print(f"来源     : {meta['label']}（{meta['provider']}）")
+    if meta["grid"]:
+        print(
+            f"网格点   : {meta['grid'][0]}, {meta['grid'][1]} · 海拔 {meta['elevation_m']} m"
+            f" · {meta['timezone']}"
+        )
+    print(f"时段     : {meta['start']} → {meta['end']}（{meta['days']} 天）")
+    print(f"气温     : 均 {meta['mean_temp_c']} °C（{meta['min_temp_c']}–{meta['max_temp_c']}）")
+    print(f"光照     : 均 {meta['mean_radiation_mj']} MJ/m²/d")
+    print(f"降水     : 合计 {meta['rain_total_mm']} mm，雨日 {meta['rain_days']} 天")
+    print(f"湿度     : 均 {meta['mean_humidity_pct']} %")
+    print(f"风速     : 均 {meta['mean_wind_ms']} m/s")
+    for note in meta["notes"]:
+        print(f"备注     : {note}")
+
+
+def _weather(args: argparse.Namespace) -> int:
+    from rancho.weather import WeatherError, fetch_weather, write_weather_csv
+
+    preset = ScenarioConfig.model_validate(PRESETS[args.preset]["config"]) if args.preset else None
+    latitude = args.lat if args.lat is not None else (preset.latitude if preset else None)
+    longitude = args.lon if args.lon is not None else (preset.longitude if preset else None)
+    if latitude is None or longitude is None:
+        raise SystemExit("需要 --lat/--lon，或用 --preset 指定场景坐标")
+
+    if args.start is not None:
+        start = args.start
+    elif preset is not None:
+        year = args.year if args.year is not None else preset.weather.year
+        start = date(year, 1, 1) + timedelta(days=preset.sowing_doy - 1)
+    else:
+        raise SystemExit("需要 --start YYYY-MM-DD（或用 --preset 从播期推算）")
+
+    days = args.days if args.days is not None else (preset.days if preset else 30)
+    protected = args.protected or bool(preset and preset.protected)
+    if args.transmission is not None:
+        transmission = args.transmission
+    elif preset is not None:
+        transmission = preset.cover_transmission
+    else:
+        transmission = 1.0
+    cache_dir = Path(args.cache_dir) if args.cache_dir is not None else DEFAULT_WORK_DIR / "weather"
+
+    try:
+        series = fetch_weather(
+            latitude,
+            longitude,
+            start,
+            days,
+            cache_dir=cache_dir,
+            timeout_s=args.timeout,
+            offline=args.offline,
+            protected=protected,
+            cover_transmission=transmission,
+        )
+    except WeatherError as exc:
+        raise SystemExit(f"取数失败：{exc}") from exc
+
+    if args.json:
+        payload = {
+            "meta": series.meta(),
+            "days": [
+                {
+                    "date": day.day.isoformat(),
+                    "tmax_c": round(day.tmax_c, 1),
+                    "tmin_c": round(day.tmin_c, 1),
+                    "radiation_mj": round(day.radiation_mj, 1),
+                    "rainfall_mm": round(day.rainfall_mm, 1),
+                    "humidity_pct": round(day.humidity_pct),
+                    "wind_ms": round(day.wind_ms, 1),
+                }
+                for day in series.days
+            ],
+        }
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+    else:
+        _print_weather(series)
+    if args.csv is not None:
+        write_weather_csv(args.csv, series)
+        print(f"csv      : {args.csv.resolve()}")
+    return 0
+
+
 def _presets() -> int:
     for key, preset in PRESETS.items():
-        print(f"{key:<14} {preset['label']}")
+        config = ScenarioConfig.model_validate(preset["config"])
+        source = "实测" if config.weather.source == "open-meteo" else "合成"
+        print(f"{key:<14} {preset['label']}  [{source}气象]")
         print(f"{'':<14} {preset['description']}")
+    return 0
+
+
+def _econ(args: argparse.Namespace) -> int:
+    """Run the greenhouse economics probe and write the report bundle."""
+    from rancho.econ.probe import probe
+    from rancho.econ.report import write_csv, write_html, write_json
+    from rancho.econ.spec import SITES, TARIFFS
+
+    if args.site not in SITES:
+        raise SystemExit(f"未知站点：{args.site}（可选 {', '.join(SITES)}）")
+    tariff_keys = tuple(key.strip() for key in args.tariff.split(",") if key.strip())
+    unknown = [key for key in tariff_keys if key not in TARIFFS]
+    if not tariff_keys or unknown:
+        raise SystemExit(f"未知电价情景：{', '.join(unknown) or args.tariff}")
+
+    result = probe(
+        site_key=args.site,
+        days=args.days,
+        seed=args.seed,
+        tariff_keys=tariff_keys,
+        growth=args.growth,
+        passes=max(1, args.farm_passes),
+    )
+
+    out_dir = Path(args.out_dir) / result.id
+    write_json(result, out_dir / "probe.json")
+    write_csv(result, out_dir / "daily.csv")
+    report = write_html(
+        result,
+        out_dir / "report.html",
+        title=f"Rancho 经济层原型 · {result.site.label}",
+    )
+
+    print(f"site     : {result.site.label} · {result.days} 天 · seed {result.seed}")
+    print(f"growth   : {result.growth}")
+    if result.coupling is not None:
+        loop = result.coupling
+        state = "已收敛" if loop["converged"] else "未收敛（达到轮数上限）"
+        print(
+            f"coupling : {loop['passes']} 轮 · 产量残差 {loop['residual'] * 100:.3f}% · "
+            f"{state} · {loop['grid']}×{loop['grid']} 田间网格"
+        )
+    print(f"run      : {result.id}")
+    for regime in result.regimes:
+        print(
+            f"\n情景     : {regime.tariff.label}（峰 {regime.tariff.peak} / 平 "
+            f"{regime.tariff.flat} / 谷 {regime.tariff.valley} 元/kWh）"
+        )
+        print(f"{'作物':<6}{'独享':>10}{'共享':>10}{'变动':>10}{'产量':>10}{'毛利':>10}{'逾配':>8}")
+        for item in regime.comparisons:
+            margin = (
+                f"{item.delta_margin_yuan:>8.0f}元"
+                if item.margin_flat
+                else f"{item.delta_margin * 100:>8.1f}%"
+            )
+            print(
+                f"{item.label:<6}{item.solo_unit_cost:>10.2f}{item.pooled_unit_cost:>10.2f}"
+                f"{item.delta_unit * 100:>9.1f}%{item.delta_yield * 100:>9.1f}%"
+                f"{margin}{item.pressure * 100:>7.0f}%"
+            )
+        print(f"结论     : {regime.verdict.summary}")
+
+    print(f"\nreport   : {report.resolve()}")
+    print(f"daily    : {(out_dir / 'daily.csv').resolve()}")
+    if not args.no_open:
+        webbrowser.open(report.resolve().as_uri())
     return 0
 
 
@@ -244,6 +469,10 @@ def main(argv: list[str] | None = None) -> int:
             return _serve(args)
         case "simulate":
             return _simulate(args)
+        case "weather":
+            return _weather(args)
         case "presets":
             return _presets()
+        case "econ":
+            return _econ(args)
     return 1

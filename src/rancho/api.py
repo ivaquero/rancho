@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import logging
+from datetime import date
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
@@ -16,6 +17,7 @@ from rancho import __version__
 from rancho.engine import run_id_for, run_scenario
 from rancho.scenario import DEFAULT_PRESET, PRESETS, ScenarioConfig
 from rancho.store import RunStore
+from rancho.weather import WeatherError, fetch_weather
 
 logger = logging.getLogger("rancho.api")
 
@@ -73,6 +75,45 @@ def create_app(work_root: Path, dist_dir: Path | None = None) -> FastAPI:
             }
             for key, preset in PRESETS.items()
         ]
+
+    @app.get("/api/weather")
+    def get_weather(
+        lat: float,
+        lon: float,
+        start: date,
+        days: int = Query(default=30, ge=1, le=400),
+        protected: bool = False,
+        transmission: float = Query(default=1.0, gt=0.2, le=1.0),
+    ) -> dict[str, Any]:
+        """Observed daily weather for a coordinate — what a run would consume."""
+        try:
+            series = fetch_weather(
+                lat,
+                lon,
+                start,
+                days,
+                cache_dir=work_root / "weather",
+                protected=protected,
+                cover_transmission=transmission,
+            )
+        except WeatherError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+        return {
+            "meta": series.meta(),
+            "days": [
+                {
+                    "date": day.day.isoformat(),
+                    "tmax_c": round(day.tmax_c, 1),
+                    "tmin_c": round(day.tmin_c, 1),
+                    "radiation_mj": round(day.radiation_mj, 1),
+                    "rainfall_mm": round(day.rainfall_mm, 1),
+                    "humidity_pct": round(day.humidity_pct),
+                    "wind_ms": round(day.wind_ms, 1),
+                }
+                for day in series.days
+            ],
+        }
 
     @app.get("/api/runs")
     def list_runs() -> list[dict[str, Any]]:

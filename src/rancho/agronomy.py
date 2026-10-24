@@ -13,7 +13,7 @@ Daily sequence (phase 0, before the crop plugin at phase 2):
    depression cells rather than discarded.
 2. Allocation — a water-limited irrigation allotment goes to the driest blocks
    first, so part of the field is deliberately left to dry down.
-3. Stress coefficient ``Ks`` from root-zone depletion (FAO-56, p = 0.5).
+3. Stress coefficient ``Ks`` from root-zone depletion (FAO-56, crop-specific p).
 4. Extraction — ``ETc = Kc · ET0 · Ks`` out of the root bucket.
 5. Nitrogen — mineralisation + split fertiliser in, crop uptake + leaching out.
 6. Write-back — voxel moisture, ``water_stress_ks``, ``n_stress_kn``, stress.
@@ -22,6 +22,7 @@ Daily sequence (phase 0, before the crop plugin at phase 2):
 from __future__ import annotations
 
 import math
+from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
@@ -29,22 +30,43 @@ import numpy as np
 from rancho.climate import SoilField
 from rancho.scenario import ScenarioConfig
 
-#: Effective root-zone depth (mm) used by the single-layer bucket.
-ROOT_ZONE_MM = 300.0
-#: Crop coefficient for a winter cereal canopy (FAO-56 mid-season).
-CROP_COEFFICIENT = 1.05
-#: Depletion fraction at which stress starts (FAO-56, p = 0.5 for cereals).
-DEPLETION_FRACTION = 0.5
-#: Nitrogen concentration of dry matter (fraction of kg DM).
-N_CONCENTRATION = 0.028
+
+@dataclass(frozen=True, slots=True)
+class CropWaterParams:
+    """Root-zone geometry and water-use coefficients of one crop.
+
+    A cereal in a 30 cm bucket and a trellised tomato in a 45 cm bucket do not
+    respond to the same depletion, so these live with the crop rather than as
+    module constants.  Values follow FAO-56 Table 12 (Kc mid, p) and the rooting
+    depths commonly reported for greenhouse production.
+    """
+
+    root_zone_mm: float
+    kc_mid: float
+    depletion_fraction: float
+    k_extinction: float
+    n_concentration: float
+    #: Cumulative shares of the season at which fertiliser is split.
+    splits: tuple[float, ...]
+
+
+#: Crop → water/nitrogen parameters.  Wheat and maize reproduce the values the
+#: existing presets were calibrated on; the vegetables use shallower buckets,
+#: a stricter depletion allowance and a denser canopy.
+CROP_WATER: dict[str, CropWaterParams] = {
+    "wheat": CropWaterParams(300.0, 1.05, 0.50, 0.45, 0.028, (0.02, 0.22, 0.40)),
+    "maize": CropWaterParams(400.0, 1.15, 0.55, 0.55, 0.025, (0.02, 0.22, 0.40)),
+    "tomato": CropWaterParams(450.0, 1.15, 0.40, 0.65, 0.032, (0.03, 0.18, 0.34, 0.50, 0.66, 0.80)),
+    "cucumber": CropWaterParams(350.0, 1.05, 0.45, 0.70, 0.030, (0.03, 0.20, 0.40, 0.60)),
+    "lettuce": CropWaterParams(200.0, 1.00, 0.35, 0.70, 0.035, (0.05, 0.30, 0.55)),
+}
+
 #: Half-saturation constant of the Mitscherlich nitrogen response (kg/ha).
 N_HALF_SATURATION = 28.0
 #: Daily net mineralisation from soil organic matter (kg N/ha/day).
 MINERALISATION_KG_HA_DAY = 0.35
 #: Share of rain deeper than 15 mm that carries nitrate below the root zone.
 LEACHING_PER_MM = 0.05
-#: Beer-Lambert canopy extinction coefficient (C3 cereals).
-K_EXTINCTION = 0.45
 #: Share of global radiation intercepted (RUE is calibrated on global MJ).
 PAR_FRACTION = 1.0
 
@@ -67,6 +89,7 @@ class AgronomyModel:
     def __init__(self, cfg: ScenarioConfig, soil: SoilField) -> None:
         self._cfg = cfg
         self._soil = soil
+        self._water = CROP_WATER[cfg.crop]
         self._moisture = soil.moisture.astype(np.float64).copy()
         self._nitrogen = soil.nitrogen.astype(np.float64).copy()
         self._biomass = np.zeros((soil.rows, soil.cols), dtype=np.float64)
@@ -126,10 +149,10 @@ class AgronomyModel:
 
     @staticmethod
     def _split_days(cfg: ScenarioConfig) -> frozenset[int]:
-        """Three fertiliser splits: basal, tillering, stem extension."""
+        """Fertiliser splits along the season — basal plus top-dressings."""
         if cfg.fertiliser_kg_ha <= 0.0:
             return frozenset()
-        return frozenset(max(1, round(cfg.days * share)) for share in (0.02, 0.22, 0.40))
+        return frozenset(max(1, round(cfg.days * share)) for share in CROP_WATER[cfg.crop].splits)
 
     @staticmethod
     def _irrigation_zone(cfg: ScenarioConfig, soil: SoilField) -> np.ndarray:
@@ -162,14 +185,16 @@ class AgronomyModel:
         np.add.at(pooled.reshape(-1), self._receiver, shed.reshape(-1))
 
         irrigation = self._allocate_irrigation()
-        self._moisture += (inflow + pooled + irrigation) / ROOT_ZONE_MM * 100.0
+        self._moisture += (inflow + pooled + irrigation) / self._water.root_zone_mm * 100.0
         np.minimum(self._moisture, soil.field_capacity + 1.5, out=self._moisture)
 
-        span = np.maximum(1e-6, DEPLETION_FRACTION * (soil.field_capacity - soil.wilting_point))
+        span = np.maximum(
+            1e-6, self._water.depletion_fraction * (soil.field_capacity - soil.wilting_point)
+        )
         stress = np.clip((self._moisture - soil.wilting_point) / span, 0.0, 1.0)
 
-        demand = max(0.0, float(env.et0_mm)) * CROP_COEFFICIENT * stress
-        self._moisture -= demand / ROOT_ZONE_MM * 100.0
+        demand = max(0.0, float(env.et0_mm)) * self._water.kc_mid * stress
+        self._moisture -= demand / self._water.root_zone_mm * 100.0
         np.maximum(self._moisture, soil.wilting_point * 0.55, out=self._moisture)
 
         self._update_nitrogen(state, rain)
@@ -215,7 +240,7 @@ class AgronomyModel:
         that share that cell, which is both density-independent and correct.
         """
         density = max(1e-6, self._cfg.plants_per_m2)
-        canopy = 1.0 - np.exp(-K_EXTINCTION * np.maximum(0.0, self._lai_written))
+        canopy = 1.0 - np.exp(-self._water.k_extinction * np.maximum(0.0, self._lai_written))
 
         radiation = float(env.radiation_mj_m2)
         grid = env.custom.get("solar_rad_corrected_mj")
@@ -245,7 +270,7 @@ class AgronomyModel:
             supply += self._cfg.fertiliser_kg_ha / len(self._fertiliser_days)
 
         # g/plant → kg DM/ha, times tissue N concentration.
-        uptake = growth_g * self._cfg.plants_per_m2 * 10.0 * N_CONCENTRATION
+        uptake = growth_g * self._cfg.plants_per_m2 * 10.0 * self._water.n_concentration
         leached = max(0.0, rain - 15.0) * LEACHING_PER_MM
         self._nitrogen = np.maximum(1.5, self._nitrogen + supply - uptake - leached)
 

@@ -31,17 +31,45 @@ export interface SeriesPoint {
   alive: number;
 }
 
+export interface WeatherMeta {
+  source: "synthetic" | "open-meteo";
+  label: string;
+  provider: string;
+  latitude: number | null;
+  longitude: number | null;
+  grid: [number, number] | null;
+  elevation_m: number | null;
+  timezone: string | null;
+  start: string;
+  end: string;
+  days: number;
+  cached: boolean;
+  notes: string[];
+  mean_temp_c: number;
+  min_temp_c: number;
+  max_temp_c: number;
+  mean_radiation_mj: number;
+  rain_total_mm: number;
+  rain_days: number;
+  mean_humidity_pct: number;
+  mean_wind_ms: number;
+}
+
 export interface RunMeta {
   name: string;
   rows: number;
   cols: number;
   days: number;
   crop: string;
+  crop_label?: string;
   variety: string;
   sowing_doy: number;
   soil: string;
   climate: string;
   terrain: string;
+  slope_pct?: number;
+  protected?: boolean;
+  cover_transmission?: number;
   irrigation: boolean;
   irrigation_mm: number;
   irrigation_coverage: number;
@@ -50,6 +78,7 @@ export interface RunMeta {
   area_ha: number;
   seed: number;
   elapsed_s: number;
+  weather?: WeatherMeta;
 }
 
 export interface YieldSummary {

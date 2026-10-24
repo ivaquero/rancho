@@ -34,6 +34,18 @@ cd frontend && pnpm dev       # http://127.0.0.1:5173/，/api 已代理到 8000
 uv run rancho simulate --preset semi-arid --out runs/dry.json
 ```
 
+查某个坐标的实测气象（Open-Meteo，无需密钥）：
+
+```bash
+uv run rancho weather --lat 13.69 --lon -89.22 --start 2025-11-06 --days 130
+```
+
+跑经济层原型：同一座棚里三种作物争电、争水，出成本曲线与验证结论。
+
+```bash
+uv run rancho econ            # 28 天、两种电价、自动打开 HTML 报告
+```
+
 ## 界面
 
 | 区域 | 内容 |
@@ -68,6 +80,104 @@ Rancho 在它之上补了三处，因为原实现会让整块地长出一样的�
 5. **产量**：插件只把灌浆期当季增量计入籽粒，忽略茎秆转运，低估约四倍；
    Rancho 用最终干物质 × 收获指数估算，引擎原值仍保留在 `yield.engine_t_per_ha`。
 
+### 设施栽培与蔬菜
+
+把主要作物从谷物换成大棚蔬菜，不只是换一张参数表，有四处必须跟着改：
+
+| 环节 | 处理 |
+| --- | --- |
+| 气候 | 新增 `tropical`：23–27 ℃ 全年、11 月–4 月旱季、5–10 月雨季，降雨概率本身按余弦调制而不是常年恒定 |
+| 棚内小气候 | `protected=True` 后降雨置零、辐射乘 `cover_transmission`（膜 0.85 × 遮阳网 0.65 ≈ 0.55）、风速降到 0.2 m/s、湿度上调；ET₀ 从露天 3.5–4 mm/d 降到 2.0–2.7 mm/d |
+| 作物 | `src/rancho/vegetables.py` 提供番茄 / 黄瓜 / 生菜插件：热时间物候到采收、吊蔓限高、结果期冠层仍在更新 |
+| 水肥 | 根区深度、Kc、允许消耗比例按作物取（`agronomy.CROP_WATER`）：番茄 450 mm / 1.15 / 0.40，不再是谷物的 300 mm / 1.05 / 0.50 |
+| 产量 | 收获指数给出的是果实干物质，再按干物质率与商品率折成鲜重可售产量 |
+
+空间结构没有因此被抹平：棚内仍留约 10 % 未接管网的边畦，胁迫指数在地块内跨 0–1，
+叶面积指数从 1.1 到 3.3 不等。场地判读、茬口与水肥依据见
+[`docs/salvador-greenhouse.md`](docs/salvador-greenhouse.md)。
+
+### 气象：合成气候与实测数据
+
+`weather.source` 决定逐日气象从哪来，两条路写同一份 CSV、走同一个 FAO-56 链路：
+
+| 取值 | 来源 | 说明 |
+| --- | --- | --- |
+| `synthetic`（默认） | `climate.py` | 气候档位的季节曲线 + 固定种子，完全离线、逐位可复现 |
+| `open-meteo` | [Open-Meteo](https://open-meteo.com/) | 按经纬度取 ERA5 再分析（0.25° ≈ 25 km），日期由 `weather.year` + `sowing_doy` 定位 |
+
+字段映射（`src/rancho/weather.py`）：
+
+| CSV 列 | Open-Meteo 日变量 | 单位处理 |
+| --- | --- | --- |
+| `tmax_c` / `tmin_c` | `temperature_2m_max` / `_min` | ℃ |
+| `radiation_mj` | `shortwave_radiation_sum` | 已是 MJ/m²/日 |
+| `rainfall_mm` | `precipitation_sum` | mm |
+| `humidity_pct` | `relative_humidity_2m_mean` | % |
+| `wind_ms` | `wind_speed_10m_mean` | km/h ÷ 3.6（用日均而非日最大，ET₀ 要的是平均风速） |
+
+```python
+weather=WeatherConfig(source="open-meteo", year=2025)   # fallback / offline / timeout_s 可选
+```
+
+| 设计取舍 | 做法 |
+| --- | --- |
+| 口径统一 | 实测值也先写 CSV 再由 CropForge 计算，`protected` 的棚内换算（透光、遮雨、0.2 m/s、湿度 +5 %）在写盘前完成，两条路只差数列本身 |
+| 可复现 | 响应按 `(坐标, 起止日)` 缓存到 `<work-dir>/weather/`；已定稿的再分析永久复用，近 5 天的 6 小时后重取；`offline=True` 只读缓存 |
+| 失败不静默 | 取数失败且 `fallback=True` 时退回合成气候，原因写进 `meta.weather.notes`；`fallback=False` 直接报错 |
+| 不混口径 | 日期晚于再分析延迟时改走预报接口，`notes` 里标明来源 |
+
+逐日序列、缓存策略、质量处理与已知局限见 [`docs/weather.md`](docs/weather.md)。
+数据许可 CC-BY 4.0（Open-Meteo / ECMWF ERA5）。
+
+### 经济层 · Mesa 竞价
+
+物理层回答「能长多少」，经济层回答「花了多少、花在谁身上」。`rancho.econ` 在物理层之上挂
+一层逐小时市场：一座大棚 Agent 持有电力、冷热量、水、肥料四种容量，三个作物 Agent 各自按
+**边际价值**报价，大棚按价值降序做序贯配置，报不上价的那部分就是逾配。
+
+| 设计 | 做法 | 为什么 |
+| --- | --- | --- |
+| 步长 | 逐小时（672 步 / 28 天） | 日均电价会抹平谷段套利：`analytic` 下 `farm` 全月补光 0 kWh，谷价降到 0.12 后买到 1882 kWh |
+| 先后 | 冷热先于补光 | 温控防不可逆的品质损伤，补光只加产量 |
+| 报价 | 每份申报拆 3 步，按买到的那段温度区间定价 | 响应是凹的，清算价落在申报区间内部而非边界 |
+| 保留价 | 冷热 `tariff/COP`、补光 `tariff`、肥料市价；灌溉无 | 灌溉是运营硬约束，不会为省 4 元/m³ 让一畦菜蔫掉 |
+| 三臂 | solo（容量 ×10⁴）/ pooled（实际）/ null（×10³） | null 必须逐位等于 solo，否则说明分配器本身有偏 |
+
+产量怎么来可以三选一：
+
+| `--growth` | 产量来源 | 边际值 | 耗时 |
+| --- | --- | --- | --- |
+| `cropforge`（默认） | `rancho.vegetables` 的插件 + Beer-Lambert 截获 | 对 DLI 差分 | 秒内 |
+| `farm` | 真跑 CropForge 农场（6×6 田、辐射钩子、逐日引擎）并与市场迭代 | 整季 ±10 % 光照重跑后逐日差分 | 约 0.7 秒 |
+| `analytic` | 第一阶段的饱和光响应代理 | 解析导数 | 秒内 |
+
+28 天热带站点、两种电价下的对照（`uv run rancho econ`）：
+
+| 产量来源 | 情景 | 番茄 | 黄瓜 | 生菜 | 极差 |
+| --- | --- | --- | --- | --- | --- |
+| `farm` | `farm` | +0.5 % | −2.0 % | +1.7 % | 3.8 % |
+| `farm` | `cheap` | −1.7 % | −13.0 % | −3.8 % | 11.3 % |
+| `cropforge` | `farm` | +1.4 % | −2.0 % | +1.7 % | 3.8 % |
+| `cropforge` | `cheap` | −1.7 % | −12.9 % | −3.8 % | 11.3 % |
+| `analytic` | `farm` | −1.1 % | −20.0 % | −0.6 % | 19.4 % |
+| `analytic` | `cheap` | +0.1 % | −24.0 % | +0.3 % | 24.4 % |
+
+（表内是最紧作物的单位成本变动；六组都通过判据，`null_gap = 0`。）
+
+`farm` 与 `cropforge` 几乎同数，是刻意的：前者真跑引擎、后者接口算好的同一组方程，
+两者在 2 % 内一致说明前两个阶段的产量不是调出来的。`farm` 两轮迭代收敛到残差 0.008 %，
+代价是 36 次农场季运行（单次约 0.01 秒）。
+
+黄瓜在两种电价里都是边际生产者：`farm` 里丢掉 49 % 的申报冷热量，温控电耗 133 → 67 kWh，
+产量 −20 %。单位成本几乎不动是因为成本与产量同步收缩——真实损失在毛利上（−19 %）。
+缺的产量一半以上来自水分胁迫（`Ks` 0.917 → 0.820），不是缺冷。
+
+成本结构上电费占 88 %（温控 + 补光 + 公摊待机），水肥只占 12 %。
+`cropforge` 下番茄会买 699 kWh 补光（`analytic` 下一度为零），因为它每多一 mol 值 6–12 g 折 14 元/kg。
+
+模型边界、判据阈值、稀缺时刻统计、换产量来源暴露的问题（潜在产量随冠层走、损伤按一天计价
+会引发死亡螺旋、农场季必须从定植苗起步），都见 [`docs/economics.md`](docs/economics.md)。
+
 ## 预设
 
 | ID | 场景 | 看点 |
@@ -76,6 +186,9 @@ Rancho 在它之上补了三处，因为原实现会让整块地长出一样的�
 | `kharif-maize` | 夏玉米 · 雨养 | 平地黏壤，无灌溉，看降水节律 |
 | `semi-arid` | 旱区 · 水分胁迫 | 沙壤 + 起伏地形，胁迫指数跨 0.17–0.99 |
 | `disease-front` | 病害扩散 · 抗性试验 | SIR 空间扩散，从两个发病中心向外推进 |
+| `salvador-greenhouse` | 萨尔瓦多 · 大棚番茄 | 竹架棚 + 遮阳网 + 防虫网，安山土缓坡滴灌，130 天 62.7 t/ha |
+| `salvador-leafy` | 萨尔瓦多 · 大棚叶菜 | 同一棚架换茬生菜，60 天短周期，43.8 t/ha |
+| `salvador-observed` | 萨尔瓦多 · 大棚番茄（实测气象） | 同上一套农艺参数，气象换 2025/26 Open-Meteo 实测，130 天 66.0 t/ha |
 
 ## 架构
 
@@ -88,7 +201,9 @@ flowchart LR
     end
     U -->|POST /api/runs| A[FastAPI]
     A --> E[engine.run_scenario]
-    E --> W[climate.py<br/>生成天气与土壤 CSV]
+    E --> W[weather.py<br/>合成气候 / Open-Meteo]
+    E --> L[climate.py<br/>土壤剖面]
+    W -.->|synthetic| L
     E --> G[agronomy.py<br/>水分 · 氮素 · 冠层]
     E --> F[CropForge<br/>作物插件 + Parquet]
     E --> B[frames.py<br/>量化成 uint8 + base64]
@@ -106,6 +221,7 @@ flowchart LR
 | --- | --- | --- |
 | GET | `/api/health` | 版本与引擎自检 |
 | GET | `/api/presets` | 内置场景及其完整配置 |
+| GET | `/api/weather` | `?lat=&lon=&start=&days=` 取实测逐日气象，可加 `protected=true` |
 | POST | `/api/runs` | `{"preset": "rabi-wheat"}` 或 `{"config": {...}}`，命中缓存直接返回 |
 | GET | `/api/runs` | 已缓存运行的摘要列表 |
 | DELETE | `/api/runs/{id}` | 删除缓存 |
@@ -115,9 +231,14 @@ flowchart LR
 ## 校验
 
 ```bash
-ruff format src && ruff check src && ty check
+ruff format src tests && ruff check src tests && ty check
+uv run pytest
 cd frontend && pnpm lint && pnpm fmt:check && pnpm typecheck && pnpm build
 ```
+
+`pytest` 是唯一的开发依赖（`uv add --group dev pytest`）；90 个用例约五秒，不联网
+（`test_econ_farm.py` 里每个用例都在真跑农场季运行）。
+覆盖范围见 [`docs/economics.md`](docs/economics.md#测试)。
 
 `ruff` / `ty` / `oxlint` / `oxfmt` 都不是项目依赖：它们由系统环境提供
 （`scoop install ruff ty oxlint oxfmt`），`uv sync` 与 `pnpm install` 都不会装，
@@ -127,16 +248,31 @@ cd frontend && pnpm lint && pnpm fmt:check && pnpm typecheck && pnpm build
 
 ```
 src/rancho/
-  scenario.py   场景配置与四个预设
-  climate.py    天气 / 土壤生成（同一 seed 逐位可复现）
+  scenario.py   场景配置与七个预设
+  climate.py    合成气候与土壤剖面（同一 seed 逐位可复现）
+  weather.py    按经纬度取气象（Open-Meteo）、缓存、CSV 序列化
   agronomy.py   逐格水分、氮素、冠层
+  vegetables.py 大棚蔬菜插件（番茄 / 黄瓜 / 生菜）
   engine.py     组装 Farm，跑一次仿真
   frames.py     Parquet → 渲染用 bundle
   api.py        FastAPI
   store.py      内存 + gzip 两级缓存
-  cli.py        dev / serve / simulate / presets
+  cli.py        dev / serve / simulate / weather / presets / econ
+  econ/         经济层：参数、外生序列、产量函数、农场驱动、Mesa 竞价、三臂对照、报告
 frontend/src/
   scene.ts      Three.js：地形、冠层实例、雨、拾取
   chart.ts      p5.js：全季小多图
   main.ts       状态与交互
+docs/
+  salvador-greenhouse.md  设施改造的场地判读、茬口与水肥依据
+  weather.md              实测气象的来源、字段映射、缓存与局限
+  economics.md            经济层的竞价机制、三臂判据与局限
+tests/
+  support.py              不跑模型就造一份 arm 快照
+  test_econ_market.py     序贯配置与逾配记账
+  test_econ_verdict.py    三臂判据的阈值边界
+  test_econ_forcing.py    电价形状、日光窗口、水价区间
+  test_econ_growth.py     两套产量函数（解析代理 / CropForge 插件）
+  test_econ_farm.py       真实农场季、响应表锚点、两套后端一致
+  test_econ_run.py        短窗口实跑的不变量
 ```

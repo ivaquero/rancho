@@ -93,6 +93,12 @@ class App {
       select.append(option);
     }
 
+    // ?preset=salvador-greenhouse deep-links straight into a scenario.
+    const requested = new URLSearchParams(location.search).get("preset");
+    if (requested && this.presets.some((preset) => preset.id === requested)) {
+      select.value = requested;
+    }
+
     overlay.hidden = false;
     runButton.disabled = true;
     overlayText.textContent = "正在运行首次仿真（约十秒）…";
@@ -257,10 +263,16 @@ class App {
       slope: "缓坡",
       undulating: "起伏",
     };
-    const soil: Record<string, string> = { loam: "壤土", clay: "黏土", sandy: "沙壤" };
+    const soil: Record<string, string> = {
+      loam: "壤土",
+      clay: "黏土",
+      sandy: "沙壤",
+      andisol: "安山土",
+    };
     const rows: [string, string][] = [
       ["地块", `${meta.rows} × ${meta.cols} 格`],
       ["面积", `${meta.area_ha.toFixed(3)} ha`],
+      ["作物", meta.crop_label ?? meta.crop],
       ["品种", meta.variety],
       ["立地", `${soil[meta.soil] ?? meta.soil} · ${terrain[meta.terrain] ?? meta.terrain}`],
       ["密度", `${meta.plants_per_m2.toFixed(0)} 株/m²`],
@@ -273,6 +285,15 @@ class App {
       ["施氮", `${meta.fertiliser_kg_ha} kg/ha`],
       ["产量", `${bundle.yield.t_per_ha.toFixed(2)} t/ha`],
     ];
+    if (meta.protected) {
+      const transmission = Math.round((meta.cover_transmission ?? 1) * 100);
+      rows.splice(4, 0, ["设施", `避雨遮阳 · 透光 ${transmission}%`]);
+    }
+    if (meta.weather) {
+      const weather = meta.weather;
+      const tag = weather.source === "open-meteo" ? "实测" : "合成";
+      rows.splice(4, 0, ["气象", `${weather.label}（${tag}）`]);
+    }
     for (const [key, value] of rows) {
       const dt = document.createElement("dt");
       dt.textContent = key;

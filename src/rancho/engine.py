@@ -26,12 +26,21 @@ from cropforge.plugins.maize import StandardMaize
 from cropforge.plugins.wheat import StandardWheat
 
 from rancho.agronomy import AgronomyModel
-from rancho.climate import build_soil_field, write_soil_csv, write_weather_csv
+from rancho.climate import build_soil_field, write_soil_csv
 from rancho.frames import build_bundle
 from rancho.scenario import ScenarioConfig
+from rancho.vegetables import Cucumber, Lettuce, Tomato
+from rancho.weather import resolve_weather
 
-#: Crop name → bundled CropForge plugin class.
-PLUGINS: dict[str, type] = {"wheat": StandardWheat, "maize": StandardMaize}
+#: Crop name → crop plugin class.  Vegetables are Rancho's own plugins; the
+#: cereals come bundled with CropForge.
+PLUGINS: dict[str, type] = {
+    "wheat": StandardWheat,
+    "maize": StandardMaize,
+    "tomato": Tomato,
+    "cucumber": Cucumber,
+    "lettuce": Lettuce,
+}
 
 _RUN_LOCK = threading.Lock()
 
@@ -88,7 +97,7 @@ def _make_terrain(cfg: ScenarioConfig) -> Terrain | None:
         generator=cfg.terrain,
         resolution_m=1.0,
         seed=cfg.seed,
-        grade_pct=1.6,
+        grade_pct=cfg.slope_pct,
         amplitude_m=1.8,
     )
 
@@ -134,13 +143,8 @@ def run_scenario(cfg: ScenarioConfig, work_root: Path) -> dict[str, Any]:
     work_dir = session_dir / "work"
     work_dir.mkdir(parents=True, exist_ok=True)
 
-    weather_path = write_weather_csv(
-        inputs_dir / "weather.csv",
-        days=cfg.days + 8,
-        climate=cfg.climate,
-        seed=cfg.seed,
-        start_doy=cfg.sowing_doy,
-    )
+    weather_path = inputs_dir / "weather.csv"
+    weather = resolve_weather(cfg, weather_path, work_root)
 
     terrain = _make_terrain(cfg)
     elevation = (
@@ -159,7 +163,7 @@ def run_scenario(cfg: ScenarioConfig, work_root: Path) -> dict[str, Any]:
     )
     soil_path = write_soil_csv(inputs_dir / "soil.csv", soil_field, pattern=cfg.soil_pattern)
 
-    farm = Farm(name=cfg.name, location=(28.6, 77.2))
+    farm = Farm(name=cfg.name, location=(cfg.latitude, cfg.longitude))
     field = _build_field(cfg, weather_path=weather_path, soil_path=soil_path, terrain=terrain)
     farm.add_field(field)
     _apply_physics(farm, cfg)
@@ -192,4 +196,5 @@ def run_scenario(cfg: ScenarioConfig, work_root: Path) -> dict[str, Any]:
         elapsed_s=elapsed,
         run_id=run_id,
         created_at=datetime.now(UTC).isoformat(timespec="seconds"),
+        weather=weather.meta(),
     )

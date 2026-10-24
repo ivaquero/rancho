@@ -5,6 +5,10 @@ runs reproducible by *generating* those inputs from a seeded model instead of
 shipping opaque data files: same scenario + same seed ⇒ bit-identical weather
 and identical soil columns.  The generated soil is also handed back as a
 :class:`SoilField` so the agronomy model and the engine work from one truth.
+
+Weather generation returns the shared :class:`rancho.weather.WeatherSeries`;
+serialisation lives in :mod:`rancho.weather` so the synthetic path and the
+real-archive path cannot drift apart.
 """
 
 from __future__ import annotations
@@ -19,22 +23,77 @@ from typing import Final
 import numpy as np
 
 from rancho.scenario import ClimateKind, SoilKind, SoilPattern
+from rancho.weather import WeatherDay, WeatherSeries
 
-WEATHER_HEADER: Final = "date,tmax_c,tmin_c,radiation_mj,rainfall_mm,humidity_pct,wind_ms"
+#: Synthetic weather has no calendar, so it is pinned to one epoch.  The
+#: seasonal sine only reads a day-of-year, which keeps every preset's CSV
+#: reproducible byte for byte no matter when the run happens.
+SYNTHETIC_EPOCH: Final = date(2026, 1, 1)
+
 LAYERS: Final[tuple[tuple[float, float], ...]] = ((0.0, 20.0), (20.0, 50.0), (50.0, 90.0))
 
-#: (mean temperature °C, seasonal amplitude K, rain probability, mean rain mm)
-CLIMATE_PROFILES: Final[dict[ClimateKind, tuple[float, float, float, float]]] = {
-    "temperate": (18.0, 8.0, 0.30, 5.0),
-    "continental": (15.0, 11.0, 0.17, 4.5),
-    "semi-arid": (25.0, 9.0, 0.07, 3.2),
+#: Display names for the climate profiles (Chinese UI labels).
+CLIMATE_LABELS: Final[dict[ClimateKind, str]] = {
+    "temperate": "温带",
+    "continental": "大陆性",
+    "semi-arid": "半干旱",
+    "tropical": "热带",
+}
+
+
+@dataclass(frozen=True, slots=True)
+class ClimateProfile:
+    """Parameters of one synthetic climate.
+
+    The seasonal cycle is a single sine for temperature and radiation, while
+    rainfall is a Bernoulli draw whose probability itself follows a cosine —
+    that second harmonic is what turns a Mediterranean-style winter-rain climate
+    into a tropical one with a sharp wet season and a genuinely dry half-year.
+    """
+
+    base_temp_c: float
+    temp_amplitude_k: float
+    temp_phase_doy: float
+    rain_probability: float
+    rain_seasonality: float
+    rain_peak_doy: float
+    rain_mean_mm: float
+    humidity_base_pct: float
+    humidity_seasonal_pct: float
+    humidity_wet_bonus_pct: float
+    radiation_base_mj: float
+    radiation_seasonal_mj: float
+    wind_base_ms: float
+    wind_scale: float
+
+
+#: One entry per climate.  The first three keep the numbers the presets were
+#: calibrated on; ``tropical`` follows El Salvador: 23–27 °C all year, a dry
+#: season from November to April and a wet season that delivers ~80 % of the
+#: annual 1700 mm between May and October.
+CLIMATE_PROFILES: Final[dict[ClimateKind, ClimateProfile]] = {
+    "temperate": ClimateProfile(
+        18.0, 8.0, 110.0, 0.30, 0.0, 240.0, 5.0, 58.0, 12.0, 18.0, 20.0, 6.0, 1.4, 0.7
+    ),
+    "continental": ClimateProfile(
+        15.0, 11.0, 110.0, 0.17, 0.0, 240.0, 4.5, 58.0, 12.0, 18.0, 20.0, 6.0, 1.4, 0.7
+    ),
+    "semi-arid": ClimateProfile(
+        25.0, 9.0, 110.0, 0.07, 0.0, 240.0, 3.2, 58.0, 12.0, 18.0, 20.0, 6.0, 1.4, 0.7
+    ),
+    "tropical": ClimateProfile(
+        25.0, 2.2, 14.0, 0.18, 0.44, 240.0, 12.0, 72.0, 6.0, 8.0, 18.0, 3.0, 0.6, 0.35
+    ),
 }
 
 #: texture → (field capacity %, wilting point %, bulk density, topsoil N kg/ha)
+#: ``andisol`` is the volcanic ash soil that covers most of the Salvadoran
+#: highlands: low bulk density, high water holding, and a large organic N pool.
 TEXTURE: Final[dict[SoilKind, tuple[float, float, float, float]]] = {
     "loam": (30.0, 13.0, 1.32, 90.0),
     "clay": (38.0, 20.0, 1.26, 105.0),
     "sandy": (18.0, 7.0, 1.55, 52.0),
+    "andisol": (34.0, 16.0, 1.05, 115.0),
 }
 
 
@@ -52,52 +111,81 @@ class SoilField:
     elevation: np.ndarray
 
 
-def write_weather_csv(
-    path: Path,
+def generate_weather(
     *,
     days: int,
     climate: ClimateKind,
     seed: int,
-    start_doy: int,
-) -> Path:
-    """Generate a deterministic daily weather series starting at *start_doy*.
+    start: date,
+) -> WeatherSeries:
+    """Generate a deterministic daily weather series starting at *start*.
 
-    The seasonal cycle follows a northern-hemisphere shape peaking around
-    day 200; rain is a Bernoulli draw whose wet days add exponentially
-    distributed depth.  Radiation is damped on wet days.
+    Temperature and radiation follow a sine peaking at the profile's phase;
+    rain is a Bernoulli draw whose wet-day probability is itself seasonal;
+    radiation is damped on wet days.
+
+    Values are kept unrounded: rounding belongs to the CSV writer, which is
+    shared with the measured-weather path.
     """
-    base, amplitude, rain_prob, rain_mean = CLIMATE_PROFILES[climate]
+    profile = CLIMATE_PROFILES[climate]
     rng = random.Random(seed)
-    origin = date(2026, 1, 1) + timedelta(days=start_doy - 1)
 
-    lines: list[str] = [WEATHER_HEADER]
+    series: list[WeatherDay] = []
     wet = False
     for offset in range(days):
-        current = origin + timedelta(days=offset)
+        current = start + timedelta(days=offset)
         doy = current.timetuple().tm_yday
-        seasonal = math.sin(2.0 * math.pi * (doy - 110) / 365.0)
+        seasonal = math.sin(2.0 * math.pi * (doy - profile.temp_phase_doy) / 365.0)
+        rain_phase = math.cos(2.0 * math.pi * (doy - profile.rain_peak_doy) / 365.0)
+        rain_chance = min(
+            0.95, max(0.02, profile.rain_probability + profile.rain_seasonality * rain_phase)
+        )
 
-        wet = rng.random() < rain_prob or (wet and rng.random() < rain_prob * 0.55)
-        rainfall = rng.expovariate(1.0 / rain_mean) if wet else 0.0
+        wet = rng.random() < rain_chance or (wet and rng.random() < rain_chance * 0.55)
+        rainfall = rng.expovariate(1.0 / profile.rain_mean_mm) if wet else 0.0
         rainfall = round(min(rainfall, 45.0), 1)
 
-        tmean = base + amplitude * seasonal + rng.gauss(0.0, 1.6)
+        tmean = profile.base_temp_c + profile.temp_amplitude_k * seasonal + rng.gauss(0.0, 1.6)
         spread = 8.0 + 2.5 * (1.0 - seasonal) + rng.uniform(0.0, 2.5)
         tmax = tmean + spread / 2.0
         tmin = tmean - spread / 2.0
 
-        radiation = max(2.0, 20.0 + 6.0 * seasonal - 1.4 * rainfall + rng.gauss(0.0, 1.8))
-        humidity = min(96.0, max(22.0, 58.0 + 12.0 * (1.0 - seasonal) + (18.0 if wet else 0.0)))
-        wind = max(0.3, 1.4 + rng.gammavariate(1.6, 0.7))
+        radiation = max(
+            2.0,
+            profile.radiation_base_mj
+            + profile.radiation_seasonal_mj * seasonal
+            - 1.4 * rainfall
+            + rng.gauss(0.0, 1.8),
+        )
+        humidity = min(
+            96.0,
+            max(
+                22.0,
+                profile.humidity_base_pct
+                + profile.humidity_seasonal_pct * (1.0 - seasonal)
+                + (profile.humidity_wet_bonus_pct if wet else 0.0),
+            ),
+        )
+        wind = max(0.3, profile.wind_base_ms + rng.gammavariate(1.6, profile.wind_scale))
 
-        lines.append(
-            f"{current.isoformat()},{tmax:.1f},{tmin:.1f},{radiation:.1f},"
-            f"{rainfall:.1f},{humidity:.0f},{wind:.1f}"
+        series.append(
+            WeatherDay(
+                day=current,
+                tmax_c=tmax,
+                tmin_c=tmin,
+                radiation_mj=radiation,
+                rainfall_mm=rainfall,
+                humidity_pct=humidity,
+                wind_ms=wind,
+            )
         )
 
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    return path
+    return WeatherSeries(
+        days=tuple(series),
+        source="synthetic",
+        label=f"合成气候 · {CLIMATE_LABELS[climate]}",
+        provider="Rancho 合成气候",
+    )
 
 
 def _management_zones(

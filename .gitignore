@@ -28,6 +28,7 @@ __pycache__/
 
 .rancho
 .pnpmx
+.pytest_cache/
 dist
 node_modules
 runs

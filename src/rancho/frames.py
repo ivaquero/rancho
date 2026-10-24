@@ -16,7 +16,7 @@ from typing import Any, Final
 import numpy as np
 import pandas as pd
 
-from rancho.scenario import STAGE_LABELS, STAGE_ORDER, ScenarioConfig
+from rancho.scenario import CROP_PROFILES, STAGE_LABELS, STAGE_ORDER, ScenarioConfig
 
 
 @dataclass(frozen=True, slots=True)
@@ -147,6 +147,7 @@ def build_bundle(
     elapsed_s: float,
     run_id: str,
     created_at: str,
+    weather: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Assemble the payload consumed by the WebGL client."""
     days, rows, cols = cfg.days, cfg.rows, cfg.cols
@@ -248,9 +249,15 @@ def build_bundle(
     # under-reports grain by roughly a factor of four.  Rancho therefore reports
     # a harvest-index estimate from final above-ground dry matter, and keeps the
     # engine's own figure alongside it for transparency.
+    #
+    # For greenhouse vegetables the index gives fruit *dry matter*; marketable
+    # yield is fresh weight, so the crop's dry-matter fraction and the share
+    # that actually grades out are applied on top.
+    profile = CROP_PROFILES[cfg.crop]
     final_biomass_g = float(np.mean(stacks["biomass"][-1])) if days else 0.0
     biomass_t_ha = final_biomass_g * cfg.plants_per_m2 * 10.0 / 1000.0
-    estimated_t_ha = biomass_t_ha * cfg.harvest_index
+    harvested_dry_t_ha = biomass_t_ha * cfg.harvest_index
+    estimated_t_ha = harvested_dry_t_ha / profile.dry_matter_fraction * profile.marketable_fraction
     engine_t_ha = round(float((yield_summary or {}).get("yield_t_per_ha", 0.0)), 3)
 
     return {
@@ -262,11 +269,15 @@ def build_bundle(
             "cols": cols,
             "days": days,
             "crop": cfg.crop,
+            "crop_label": CROP_PROFILES[cfg.crop].label,
             "variety": cfg.variety,
             "sowing_doy": cfg.sowing_doy,
             "soil": cfg.soil,
             "climate": cfg.climate,
             "terrain": cfg.terrain,
+            "slope_pct": cfg.slope_pct,
+            "protected": cfg.protected,
+            "cover_transmission": round(cfg.cover_transmission, 2),
             "irrigation": cfg.irrigation,
             "irrigation_mm": cfg.irrigation_mm,
             "irrigation_coverage": round(cfg.irrigation_coverage, 2),
@@ -276,6 +287,7 @@ def build_bundle(
             "seed": cfg.seed,
             "elapsed_s": round(elapsed_s, 2),
             "physics": cfg.physics.model_dump(),
+            "weather": weather or {},
         },
         "grid": {
             "rows": rows,
