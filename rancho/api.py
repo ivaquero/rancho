@@ -21,6 +21,8 @@ from rancho.scenario import (
     MOSAIC_KEYS,
     PRESETS,
     ScenarioConfig,
+    horizon_days,
+    season_days,
 )
 from rancho.store import RunStore
 from rancho.weather import WeatherError, fetch_weather
@@ -174,7 +176,7 @@ def create_app(work_root: Path, dist_dir: Path | None = None) -> FastAPI:
             run_id,
             config.rows,
             config.cols,
-            config.days,
+            horizon_days(config),
             config.crop,
         )
         try:

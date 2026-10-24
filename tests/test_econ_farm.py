@@ -152,7 +152,7 @@ def test_the_coupled_probe_keeps_the_null_check_bit_exact() -> None:
         seed=42,
         growth="farm",
         passes=2,
-        tariff_keys=("farm",),
+        tariff_keys=("sv_horaria",),
         crop_keys=("tomato", "lettuce"),
     )
     verdict = result.regimes[0].verdict
@@ -170,7 +170,7 @@ def test_the_coupled_probe_reports_a_converged_loop() -> None:
         seed=42,
         growth="farm",
         passes=3,
-        tariff_keys=("farm",),
+        tariff_keys=("sv_horaria",),
         crop_keys=("tomato",),
     )
     coupling = result.coupling
@@ -189,7 +189,7 @@ def test_the_coupled_backend_is_deterministic() -> None:
             seed=seed,
             growth="farm",
             passes=2,
-            tariff_keys=("farm",),
+            tariff_keys=("sv_horaria",),
             crop_keys=("tomato",),
         )
         payload = result.to_dict()

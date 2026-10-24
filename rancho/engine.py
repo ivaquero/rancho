@@ -29,7 +29,7 @@ from rancho.agronomy import AgronomyModel
 from rancho.climate import build_soil_field, write_soil_csv
 from rancho.frames import build_bundle
 from rancho.mosaic import CropMosaic
-from rancho.scenario import MOSAIC_KEYS, ScenarioConfig, crop_grid
+from rancho.scenario import MOSAIC_KEYS, ScenarioConfig, crop_grid, horizon_days, with_horizon
 from rancho.vegetables import PLUGINS as VEGETABLE_PLUGINS
 from rancho.weather import resolve_weather
 
@@ -70,8 +70,12 @@ def _engine_slot(wait: bool = True) -> Generator[None]:
 
 
 def run_id_for(cfg: ScenarioConfig) -> str:
-    """Stable identifier for a scenario — identical configs reuse the cached run."""
-    payload = cfg.model_dump_json()
+    """Stable identifier for a scenario — identical configs reuse the cached run.
+
+    The horizon is resolved first: a field left to run until its crop matures
+    *is* the same run as the same field with that number of days written in.
+    """
+    payload = with_horizon(cfg).model_dump_json()
     return hashlib.sha1(payload.encode("utf-8")).hexdigest()[:12]
 
 
@@ -171,6 +175,9 @@ def run_scenario(
     behind it (the default, which is what a CLI invocation wants) or raise
     :class:`RunBusyError` at once, which is what an HTTP request wants.
     """
+    # Resolve once: from here on ``cfg.days`` is the horizon actually simulated,
+    # whether the caller named one or left it to the crop.
+    cfg = with_horizon(cfg)
     run_id = run_id_for(cfg)
     session_dir = work_root / run_id
     inputs_dir = session_dir / "inputs"
@@ -218,7 +225,7 @@ def run_scenario(
 
     started = time.perf_counter()
     with _engine_slot(wait), _working_directory(work_dir):
-        farm.run(days=cfg.days)
+        farm.run(days=horizon_days(cfg))
     elapsed = time.perf_counter() - started
 
     sessions = sorted((work_dir / "cropforge_output").glob("*"))

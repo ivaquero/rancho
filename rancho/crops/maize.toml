@@ -7,6 +7,9 @@ id = "maize"
 label = "玉米"
 species = "Zea mays"
 
+[season]
+days_to_maturity = 145              # 雨季一茬玉米，约五个月
+
 [water]
 root_zone_mm = 400.0
 kc_mid = 1.15

@@ -21,6 +21,7 @@ Layout of one file — ``tomato.toml`` carries the annotated original::
 
     [growth]  # rue, lai_slope, lai_max, senescence_*, transplant_lai
     [structure]  # k_height, max_height_cm
+    [season]  # days_to_maturity — how long a scenario runs if it does not say
     [water]  # root_zone_mm, kc_mid, …, splits
     [product]  # dry_matter_fraction, marketable_fraction
     [market]  # price, light and temperature traits the bids are priced off
@@ -103,6 +104,16 @@ class Growth(_Strict):
     transplant_lai: float = Field(default=0.45, gt=0.0)
 
 
+class Season(_Strict):
+    """How long the crop holds the field — mirrors the ``[season]`` table."""
+
+    #: Days from sowing or transplant to the last stage.  This is what decides
+    #: how long a scenario runs when it does not say: the field is simulated
+    #: until the slowest crop in it has matured, so a bed of tomato and lettuce
+    #: is not cut short because the lettuce finished first.
+    days_to_maturity: int = Field(gt=0, le=365)
+
+
 class Structure(_Strict):
     """Height allometry and the trellis that caps it — the ``[structure]`` table."""
 
@@ -181,6 +192,10 @@ class CropTemplate(_Strict):
     stages: tuple[Stage, ...] = ()
     growth: Growth | None = None
     structure: Structure | None = None
+    #: Every crop declares this, including the cereals: CropForge advances their
+    #: phenology, but how long a crop stands in the field is still a fact about
+    #: the crop, and it is what sets the horizon when a scenario stays silent.
+    season: Season
     water: Water
     product: Product
     #: Omitted by crops that never enter the greenhouse auction.

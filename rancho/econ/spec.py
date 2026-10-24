@@ -55,13 +55,33 @@ THERMAL_STEPS: Final = 3
 WATER_STEPS: Final = 3
 
 
+#: The currency every amount is booked in.  Sale prices (``price_yuan_kg``),
+#: water and fertiliser are all quoted in yuan, so electricity has to arrive in
+#: yuan too — a bid compares a marginal value in yuan against a price, and a
+#: missing exchange rate silently rescales the comparison.
+LEDGER_CURRENCY: Final = "CNY"
+
+#: US dollar to yuan.  El Salvador has been dollarised since 2001, so its rate
+#: sheets are published in USD: tariffs are stored at face value and converted
+#: on the way out, which keeps them checkable against the source.  Update this
+#: one number when the rate moves; do not edit the scenarios.
+USD_CNY: Final = 6.6723
+
+
 @dataclass(frozen=True, slots=True)
 class TariffSpec:
-    """A time-of-use electricity tariff, in yuan per kWh.
+    """A time-of-use electricity tariff, priced in its local currency.
 
-    The three blocks are the ones Chinese and Central American farm tariffs
-    actually use.  ``spread`` is the daily market multiplier applied to the
-    whole day, which is what makes the *level* move while the *shape* stays.
+    The three blocks are the ones Salvadoran distribution companies actually
+    bill: *punta* (peak), *resto* (shoulder) and *valle* (off-peak).
+
+    The block order here is not a typo.  In El Salvador *valle* costs **more**
+    than *resto* — USD 0.207 against 0.178 at medium demand, low voltage,
+    August 2026.  Photovoltaic output collapses after sunset while geothermal
+    and hydro carry the night, so the cheap hours sit in the middle of the day
+    rather than after midnight.  A grower used to Chinese farm tariffs, where
+    the valley block is the cheapest thing on the bill and lights run at night,
+    has to unlearn that here.
     """
 
     key: str
@@ -69,10 +89,16 @@ class TariffSpec:
     valley: float
     flat: float
     peak: float
+    currency: str = "USD"
+    fx: float = 1.0
 
     def rate(self, hour: int) -> float:
-        """Price for a clock hour in ``[0, 24)``."""
+        """Price for a clock hour in ``[0, 24)``, in the tariff's own currency."""
         return getattr(self, _block_of(hour))
+
+    def rate_ledger(self, hour: int) -> float:
+        """The same price converted to the ledger currency (CNY)."""
+        return self.rate(hour) * self.fx
 
     def block(self, hour: int) -> str:
         """Tariff block name for a clock hour."""
@@ -80,7 +106,17 @@ class TariffSpec:
 
 
 def _block_of(hour: int) -> str:
-    """Map a clock hour to its tariff block."""
+    """Map a clock hour to its tariff block.
+
+    The shape here is inherited from the Chinese commercial time-of-use tariff
+    this model was first written against: an early-morning and an evening peak
+    around a flat middle, with the valley after midnight.  The Salvadoran
+    *punta* / *resto* / *valle* hours have not been confirmed against a DGEHM
+    rate sheet yet, so treat the clock as a modelling assumption rather than a
+    quoted schedule.  It is the only place the shape lives — correcting it is a
+    one-function edit, and the three arms share it, so a change cannot
+    intro-end a bias into the comparison.
+    """
     if 0 <= hour < 6:
         return "valley"
     if 6 <= hour < 10:
@@ -332,11 +368,40 @@ SITES: Final[dict[str, SiteProfile]] = {
     ),
 }
 
-#: Default tariff and a discounted valley block, which is what it takes to make
-#: supplemental lighting pay.  The pair is the probe's second experiment.
+#: Salvadoran retail tariffs, from the AES CLESA end-user rate sheet issued
+#: under DGEHM resolutions No. 97/2026/DE and 98/2026/DE, effective 1 August
+#: 2026.  Medium demand is 10–50 kW, which is the bracket a 36 kW service
+#: falls into; the rates below are the low-voltage (BT) figures.
+#:
+#: What separates the two scenarios is not how expensive they are but whether
+#: the meter *sees time*.  ``sv_horaria`` bills by the hour, so a grower can
+#: move load into the cheap block; ``sv_plana`` charges one price all day, so
+#: moving load buys nothing.  Putting them side by side is what tells you
+#: whether the peak/valley spread is actually large enough to be worth
+#: scheduling against — and in this tariff it barely is (1.18×, against 3.9×
+#: for the Chinese farm tariff this model originally carried).
+#:
+#: Note the ordering: *valle* sits above *resto*, not below it.  Solar output
+#: is gone by the time the off-peak block starts, so the cheap hours fall in
+#: the middle of the day.  Rates are in USD; ``fx`` converts them to the ledger
+#: currency — roughly 1.40 / 1.19 / 1.38 元/kWh at the rate above.
 TARIFFS: Final[dict[str, TariffSpec]] = {
-    "farm": TariffSpec(key="farm", label="农业峰谷电价", valley=0.32, flat=0.78, peak=1.25),
-    "cheap": TariffSpec(
-        key="cheap", label="谷段优惠 / 光伏自用", valley=0.12, flat=0.45, peak=0.95
+    "sv_horaria": TariffSpec(
+        key="sv_horaria",
+        label="萨尔瓦多 · 中需求 BT 分时计量",
+        peak=0.209986,
+        flat=0.178033,
+        valley=0.206997,
+        currency="USD",
+        fx=USD_CNY,
+    ),
+    "sv_plana": TariffSpec(
+        key="sv_plana",
+        label="萨尔瓦多 · 中需求 BT 统一费率",
+        peak=0.186401,
+        flat=0.186401,
+        valley=0.186401,
+        currency="USD",
+        fx=USD_CNY,
     ),
 }

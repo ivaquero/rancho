@@ -9,6 +9,9 @@ id = "wheat"
 label = "小麦"
 species = "Triticum aestivum"
 
+[season]
+days_to_maturity = 200              # 冬小麦全生育期：11 月播种，翌年 4–5 月收
+
 [water]
 root_zone_mm = 300.0                # 30 cm 有效根区
 kc_mid = 1.05                       # FAO-56 生育中期

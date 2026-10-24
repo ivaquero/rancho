@@ -36,6 +36,9 @@ transplant_lai = 0.75
 k_height = 3.2                      # 株型矮，√g 系数小
 max_height_cm = 30.0                # 叶球高度约 30 cm
 
+[season]
+days_to_maturity = 60               # 50–60 天一茬，全季最短
+
 [water]
 root_zone_mm = 200.0                # 浅根，20 cm 土深
 kc_mid = 1.00

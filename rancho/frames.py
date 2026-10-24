@@ -24,6 +24,7 @@ from rancho.scenario import (
     crop_grid,
     crop_indices,
     crop_keys,
+    horizon_days,
 )
 
 
@@ -206,7 +207,7 @@ def build_bundle(
     weather: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Assemble the payload consumed by the WebGL client."""
-    days, rows, cols = cfg.days, cfg.rows, cfg.cols
+    days, rows, cols = horizon_days(cfg), cfg.rows, cfg.cols
 
     plants = _read_table(log_dir, "plants")
     soil = _read_table(log_dir, "soil")

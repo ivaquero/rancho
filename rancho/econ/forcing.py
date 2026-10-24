@@ -62,6 +62,10 @@ class Forcing:
     tariff_block: tuple[str, ...]
     water_price: tuple[float, ...]
     fert_price: tuple[float, ...]
+    #: The same tariff in the currency it was published in.  Nothing in the
+    #: model reads it — it exists so a report can quote a rate a grower can
+    #: find on their own bill.
+    tariff_price_local: tuple[float, ...] = ()
 
     @property
     def hours(self) -> int:
@@ -95,6 +99,7 @@ class Forcing:
             "mean_tariff": round(sum(self.tariff_price) / count, 3),
             "min_tariff": round(min(self.tariff_price), 3),
             "max_tariff": round(max(self.tariff_price), 3),
+            "mean_tariff_local": round(sum(self.tariff_price_local) / count, 4),
             "mean_water_price": round(sum(self.water_price) / count, 2),
             "mean_fert_price": round(sum(self.fert_price) / count, 2),
         }
@@ -127,6 +132,7 @@ def build_forcing(
     tariff_block: list[str] = []
     water_price: list[float] = []
     fert_price: list[float] = []
+    tariff_price_local: list[float] = []
 
     shape = [
         max(0.0, math.sin(math.pi * (hour - SUNRISE_HOUR) / (SUNSET_HOUR - SUNRISE_HOUR)))
@@ -159,7 +165,8 @@ def build_forcing(
             diurnal = site.temp_amplitude_k / 2.0 * math.cos(2.0 * math.pi * (hour - 15.0) / 24.0)
             temp_out.append(day_mean + diurnal + rng.gauss(0.0, 0.28))
             radiation_in.append(daily_inside * shape[hour] / shape_total)
-            tariff_price.append(tariff.rate(hour) * spot)
+            tariff_price.append(tariff.rate_ledger(hour) * spot)
+            tariff_price_local.append(tariff.rate(hour))
             tariff_block.append(tariff.block(hour))
             water_price.append(day_water)
             fert_price.append(day_fert)
@@ -174,4 +181,5 @@ def build_forcing(
         tariff_block=tuple(tariff_block),
         water_price=tuple(water_price),
         fert_price=tuple(fert_price),
+        tariff_price_local=tuple(tariff_price_local),
     )

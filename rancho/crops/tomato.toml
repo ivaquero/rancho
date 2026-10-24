@@ -56,6 +56,9 @@ transplant_lai = 0.45               # 定植苗的起始 LAI（温室是定植�
 k_height = 8.0                      # 株高异速：cm per √g 干物质
 max_height_cm = 220.0               # 吊蔓钢丝高度，冠层到此封顶
 
+[season]
+days_to_maturity = 130              # 定植到拔秧：一茬大棚番茄约四个半月
+
 [water]
 root_zone_mm = 450.0                # 有效根区贮水量（滴灌番茄取 45 cm 土深）
 kc_mid = 1.15                       # FAO-56 生育中期作物系数

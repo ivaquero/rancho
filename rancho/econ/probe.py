@@ -210,7 +210,7 @@ def probe(
     site_key: str = "tropical",
     days: int = 28,
     seed: int = 42,
-    tariff_keys: tuple[str, ...] = ("farm", "cheap"),
+    tariff_keys: tuple[str, ...] = ("sv_horaria", "sv_plana"),
     crop_keys: tuple[str, ...] = ("tomato", "cucumber", "lettuce"),
     growth: str = "cropforge",
     passes: int = MAX_PASSES,

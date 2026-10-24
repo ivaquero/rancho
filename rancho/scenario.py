@@ -137,7 +137,11 @@ class ScenarioConfig(BaseModel):
     name: str = Field(default="North Plot", min_length=1, max_length=64)
     rows: int = Field(default=26, ge=4, le=72)
     cols: int = Field(default=34, ge=4, le=96)
-    days: int = Field(default=200, ge=10, le=240)
+    #: How long the run lasts.  ``None`` — the default — means "until the
+    #: slowest crop in the field has matured", see :func:`season_days`.  A
+    #: scenario that names a horizon instead is cutting the season short on
+    #: purpose, and that number wins.
+    days: int | None = Field(default=None, ge=10, le=240)
 
     crop: str = Field(default="wheat", min_length=1, max_length=32)
     variety: str = Field(default="HD-2967", min_length=1, max_length=48)
@@ -279,6 +283,33 @@ def crop_indices(cfg: ScenarioConfig) -> list[int]:
     return [lookup[key] for key in crop_grid(cfg)]
 
 
+def season_days(cfg: ScenarioConfig) -> int:
+    """Days the field needs before its slowest crop has matured.
+
+    A mixed bed is finished when the *last* crop in it is, so this is the
+    maximum rather than an average: lettuce is ready in 60 days but stands next
+    to tomato for another 70.  Clamped to the range :attr:`ScenarioConfig.days`
+    accepts, so a slow cereal cannot ask for more than the engine will run.
+    """
+    longest = max(TEMPLATES[key].season.days_to_maturity for key in crop_keys(cfg))
+    return max(10, min(240, longest))
+
+
+def horizon_days(cfg: ScenarioConfig) -> int:
+    """The number of days this scenario will actually simulate."""
+    return cfg.days if cfg.days is not None else season_days(cfg)
+
+
+def with_horizon(cfg: ScenarioConfig) -> ScenarioConfig:
+    """Copy with :attr:`days` filled in — what the engine and the cache key use.
+
+    Resolving once, at the edge, keeps the rest of the code reading a plain
+    integer: ``days=None`` and ``days=130`` for the same tomato field *are* the
+    same run and must share a cache entry.
+    """
+    return cfg if cfg.days is not None else cfg.model_copy(update={"days": season_days(cfg)})
+
+
 PRESETS: dict[str, dict[str, object]] = {
     "rabi-wheat": {
         "label": "冬小麦 · 常规灌溉",
@@ -287,7 +318,6 @@ PRESETS: dict[str, dict[str, object]] = {
             name="North Plot",
             rows=26,
             cols=34,
-            days=200,
             crop="wheat",
             variety="HD-2967",
             sowing_doy=300,
@@ -309,7 +339,6 @@ PRESETS: dict[str, dict[str, object]] = {
             name="South Plot",
             rows=24,
             cols=32,
-            days=145,
             crop="maize",
             variety="Bio-9681",
             sowing_doy=170,
@@ -330,6 +359,7 @@ PRESETS: dict[str, dict[str, object]] = {
             name="Dry Plot",
             rows=22,
             cols=30,
+            # 170 天而不是小麦自己的 200：旱区要的是胁迫过程，不是满季产量。
             days=170,
             crop="wheat",
             variety="HD-2967",
@@ -354,6 +384,7 @@ PRESETS: dict[str, dict[str, object]] = {
             name="Trial Plot",
             rows=24,
             cols=30,
+            # 同上：190 天收，给病害扩散留出对照窗口。
             days=190,
             crop="wheat",
             variety="HD-2967",
@@ -383,7 +414,6 @@ PRESETS: dict[str, dict[str, object]] = {
             # the field being this size — the sliders go up to 72 × 96.
             rows=5,
             cols=12,
-            days=130,
             crop="tomato",
             variety="Caiman F1",
             sowing_doy=310,
@@ -416,7 +446,6 @@ PRESETS: dict[str, dict[str, object]] = {
             name="Invernadero Hoja",
             rows=18,
             cols=40,
-            days=60,
             crop="lettuce",
             variety="Salanova",
             sowing_doy=20,
@@ -449,7 +478,6 @@ PRESETS: dict[str, dict[str, object]] = {
             name="Invernadero Mixto",
             rows=18,
             cols=39,
-            days=120,
             crop="tomato",
             variety="Caiman F1",
             sowing_doy=310,
@@ -490,7 +518,6 @@ PRESETS: dict[str, dict[str, object]] = {
             name="Invernadero Observado",
             rows=18,
             cols=40,
-            days=130,
             crop="tomato",
             variety="Caiman F1",
             sowing_doy=310,

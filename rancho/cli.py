@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from rancho import __version__
-from rancho.scenario import DEFAULT_PRESET, PRESETS, ScenarioConfig
+from rancho.scenario import DEFAULT_PRESET, PRESETS, ScenarioConfig, horizon_days
 
 # ``cropforge`` 在 import 阶段就会拉进 ``fastapi.middleware.wsgi``（只为了它自带的
 # Dash 面板），而 starlette 1.9 起该模块已被弃用。Rancho 用不到它，所以只在这一次
@@ -109,8 +109,8 @@ def _build_parser() -> argparse.ArgumentParser:
     econ.add_argument("--seed", type=int, default=42)
     econ.add_argument(
         "--tariff",
-        default="farm,cheap",
-        help="逗号分隔的电价情景：farm（农业峰谷）、cheap（谷段优惠）",
+        default="sv_horaria,sv_plana",
+        help=("逗号分隔的电价情景：sv_horaria（萨尔瓦多中需求 BT 分时计量）、sv_plana（统一费率）"),
     )
     econ.add_argument(
         "--growth",
@@ -342,7 +342,7 @@ def _weather(args: argparse.Namespace) -> int:
     else:
         raise SystemExit("需要 --start YYYY-MM-DD（或用 --preset 从播期推算）")
 
-    days = args.days if args.days is not None else (preset.days if preset else 30)
+    days = args.days if args.days is not None else (horizon_days(preset) if preset else 30)
     protected = args.protected or bool(preset and preset.protected)
     if args.transmission is not None:
         transmission = args.transmission

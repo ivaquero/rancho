@@ -52,6 +52,9 @@ transplant_lai = 0.55
 k_height = 9.0
 max_height_cm = 250.0               # 吊蔓到 2.5 m
 
+[season]
+days_to_maturity = 100              # 比番茄短：全季积温约番茄一半
+
 [water]
 root_zone_mm = 350.0                # 根系比番茄浅
 kc_mid = 1.05

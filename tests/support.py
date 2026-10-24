@@ -19,7 +19,7 @@ def one_day_forcing() -> Forcing:
     """A real forcing block, one day long — enough to make an arm honest."""
     return build_forcing(
         SITES["tropical"],
-        TARIFFS["farm"],
+        TARIFFS["sv_horaria"],
         days=1,
         seed=1,
         water_price_base=GREENHOUSE.water_price_yuan_m3,

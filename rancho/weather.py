@@ -32,7 +32,7 @@ from pathlib import Path
 from typing import Any, Final
 
 from rancho import __version__
-from rancho.scenario import ScenarioConfig, WeatherSource
+from rancho.scenario import ScenarioConfig, WeatherSource, horizon_days
 
 #: Column order CropForge expects; the unit of each column is in the name.
 WEATHER_HEADER: Final = "date,tmax_c,tmin_c,radiation_mj,rainfall_mm,humidity_pct,wind_ms"
@@ -497,7 +497,7 @@ def resolve_weather(cfg: ScenarioConfig, path: Path, work_root: Path) -> Weather
     climate *only if* the scenario allows it — and says so in the metadata, so a
     fallback run can never be mistaken for an observed one.
     """
-    days = cfg.days + 8
+    days = horizon_days(cfg) + 8
 
     if cfg.weather.source == "open-meteo":
         # Real data is anchored to a calendar year; the scenario itself only

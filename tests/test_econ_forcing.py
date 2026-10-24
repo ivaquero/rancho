@@ -19,7 +19,7 @@ WATER_BASE = GREENHOUSE.water_price_yuan_m3
 def _forcing(days: int = 28, seed: int = 42):
     return build_forcing(
         SITES["tropical"],
-        TARIFFS["farm"],
+        TARIFFS["sv_horaria"],
         days=days,
         seed=seed,
         water_price_base=GREENHOUSE.water_price_yuan_m3,
@@ -28,7 +28,7 @@ def _forcing(days: int = 28, seed: int = 42):
 
 
 def test_the_tariff_keeps_its_documented_block_shape() -> None:
-    tariff = TARIFFS["farm"]
+    tariff = TARIFFS["sv_horaria"]
     blocks = [tariff.block(hour) for hour in range(HOURS_PER_DAY)]
     assert blocks == (
         ["valley"] * 6 + ["flat"] * 4 + ["peak"] * 2 + ["flat"] * 5 + ["peak"] * 4 + ["flat"] * 3

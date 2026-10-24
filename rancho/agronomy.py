@@ -29,7 +29,7 @@ import numpy as np
 
 from rancho.climate import SoilField
 from rancho.crops import TEMPLATES, CropTemplate
-from rancho.scenario import ScenarioConfig, crop_grid
+from rancho.scenario import ScenarioConfig, crop_grid, horizon_days
 
 
 @dataclass(frozen=True, slots=True)
@@ -171,7 +171,7 @@ class AgronomyModel:
         """Fertiliser splits along the season — basal plus top-dressings."""
         if cfg.fertiliser_kg_ha <= 0.0 or not crop.splits:
             return frozenset()
-        return frozenset(max(1, round(cfg.days * share)) for share in crop.splits)
+        return frozenset(max(1, round(horizon_days(cfg) * share)) for share in crop.splits)
 
     @staticmethod
     def _route_runoff(soil: SoilField) -> tuple[np.ndarray, np.ndarray]:

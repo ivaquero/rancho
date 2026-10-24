@@ -35,7 +35,7 @@ def _run(
 ) -> ArmResult:
     return run_arm(
         site=SITES["tropical"],
-        tariff=TARIFFS["farm"],
+        tariff=TARIFFS["sv_horaria"],
         crops=CROPS_3,
         days=days,
         seed=seed,
@@ -157,7 +157,7 @@ def test_the_null_check_also_holds_for_the_cropforge_backend() -> None:
 
 
 def test_a_small_probe_serialises_and_keeps_its_null_check_green() -> None:
-    result = probe(days=2, seed=42, tariff_keys=("farm",), crop_keys=("tomato", "cucumber"))
+    result = probe(days=2, seed=42, tariff_keys=("sv_horaria",), crop_keys=("tomato", "cucumber"))
     regime = result.regimes[0]
     assert regime.verdict.null_ok is True
     assert regime.verdict.null_gap <= NULL_TOLERANCE
