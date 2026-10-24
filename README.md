@@ -48,14 +48,39 @@ uv run rancho econ            # 28 天、两种电价、自动打开 HTML 报告
 
 ## 界面
 
+默认打开**大棚蔬菜**：萨尔瓦多竹架棚、遮阳网下的番茄，130 天。想换谷物、叶菜或实测气象，
+下拉框里七个场景随手切。
+
 | 区域 | 内容                                                                   |
 | ---- | ---------------------------------------------------------------------- |
-| 中央 | 26 × 34 格的地块（每格 1 m），高程来自程序化地形，冠层按每格生物量生长 |
-| 右侧 | 着色通道、色标、当日统计、地块参数与产量                               |
+| 中央 | 18 × 40 格的地块（每格 1 m），高程来自程序化地形，冠层按每格生物量生长 |
+| 右侧 | 着色通道、色标、当日统计、蔬菜布局、地块尺寸、地块参数与产量           |
 | 左下 | p5.js 全季轨迹：LAI / 含水率 / 胁迫 / 降水，可点击或拖动定位日期       |
 | 底部 | 播放、时间轴、速度、株高夸张系数                                       |
 
 交互：`空格` 播放暂停，`←/→` 单日步进，鼠标悬停读出该格全部通道值。
+
+### 逐格换作物
+
+「蔬菜布局」里的色片就是画笔：点一下选作物，在地块上**点击或拖拽**就把经过的格子换成它。
+改动后约 0.5 秒自动重跑；画回原来的样子会命中缓存，立刻回来。
+
+| 控件                                | 作用                                                                          |
+| ----------------------------------- | ----------------------------------------------------------------------------- |
+| 作物色片                            | 选画笔。列表来自 `/api/crops`，只有 Rancho 自带物候的作物可选（番茄/黄瓜/生菜）|
+| 拖拽画笔                            | 打开时左键拖动作画，右键平移、滚轮缩放；关掉后左键恢复旋转视角                |
+| 整块填充 / 按列分带 / 还原场景      | 铺满当前画笔、按列均分所有作物、回到预设的原始布局                            |
+| 构成列表                            | 每种作物占多少格、百分之多少                                                  |
+
+混作不是换色片那么简单——水、氮与产量都按作物走，见[逐格混作](#逐格混作)。谷物的物候由
+CropForge 插件整块推进、无法逐格指派，所以切到小麦 / 玉米场景时画笔置灰。
+
+### 地块尺寸
+
+「地块尺寸」三个滑块分别改行数、列数、天数（4–72 × 4–96 × 10–240，上下界由 `/api/limits`
+给出，跟着校验器走）。**松开滑块才发起仿真**，拖动途中只更新读数。改尺寸不会丢已经画好的
+布局：每个新格子取原相对位置最近的那一格——服务端 `ScenarioConfig.with_grid` 是同一套算法。
+格子多了会慢，超过 2400 格时提示区会写一句「跑一次可能要半分钟」。
 
 ## 模型
 
@@ -95,6 +120,30 @@ Rancho 在它之上补了三处，因为原实现会让整块地长出一样的�
 空间结构没有因此被抹平：棚内仍留约 10 % 未接管网的边畦，胁迫指数在地块内跨 0–1，
 叶面积指数从 1.1 到 3.3 不等。场地判读、茬口与水肥依据见
 [`docs/salvador-greenhouse.md`](docs/salvador-greenhouse.md)。
+
+### 逐格混作
+
+一座棚里通常不止一种菜。`ScenarioConfig.crop_map` 给**每一格**指定作物（行优先、长度必须
+等于 `rows × cols`），`rancho/mosaic.py` 的 `CropMosaic` 按格把每株植物交给对应作物的插件。
+
+| 环节     | 处理                                                                                                                            |
+| -------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| 生长     | 一个调度插件持有若干子插件，逐株按格查表分发；均匀布局走的就是「同一个子插件」这条路径，与单作物运行逐位相同（有测试钉住）    |
+| 水       | 根区深度、`Kc`、允许消耗比例 `p`、消光系数都变成 `(rows, cols)` 数组，各畦按自己的桶蒸散                                      |
+| 氮       | 追肥按**各自作物**的 `splits` 落到各畦，六次追肥的番茄畦和三次的生菜畦互不相扰，季节总量不变                                  |
+| 产量     | 每种作物先按自己的收获指数、干物质率、商品率折鲜重，再按面积加权成整块地的 t/ha；`yield.crops` 保留每种作物的账            |
+
+两条边界要说清：
+
+- **只有 Rancho 自带物候的作物能逐格指派**（当前是番茄 / 黄瓜 / 生菜）。小麦、玉米的物候由
+  CropForge 插件在一次 `step` 里整块推进，没有逐株入口，把它们写进 `crop_map` 会在校验阶段
+  直接报错而不是静默跑错——`MOSAIC_KEYS` 由模板的 `has_phenology` 算出，加一个带物候段的
+  TOML 就自动可混作。
+- **混作场景的 `crop` 也必须是可混作作物**：它是地块对外报的作物，也是引擎挑插件的依据，
+  不能一边报小麦一边拿番茄的布局。
+
+界面上就是「蔬菜布局」那一片：选色片 → 在地块上画 → 自动重跑。命令行同样能改尺寸，布局会
+跟着缩放（`with_grid`）；`simulate` 会把每种作物的账打出来。
 
 ### 作物模板
 
@@ -200,7 +249,8 @@ weather=WeatherConfig(source="open-meteo", year=2025)   # fallback / offline / t
 | `kharif-maize`        | 夏玉米 · 雨养                   | 平地黏壤，无灌溉，看降水节律                                       |
 | `semi-arid`           | 旱区 · 水分胁迫                 | 沙壤 + 起伏地形，胁迫指数跨 0.17–0.99                              |
 | `disease-front`       | 病害扩散 · 抗性试验             | SIR 空间扩散，从两个发病中心向外推进                               |
-| `salvador-greenhouse` | 萨尔瓦多 · 大棚番茄             | 竹架棚 + 遮阳网 + 防虫网，安山土缓坡滴灌，130 天 62.7 t/ha         |
+| `salvador-greenhouse` | 萨尔瓦多 · 大棚番茄             | **默认场景**。竹架棚 + 遮阳网 + 防虫网，安山土缓坡滴灌，130 天 62.7 t/ha |
+| `salvador-mosaic`     | 萨尔瓦多 · 大棚混作             | 同一棚里按畦分番茄 / 黄瓜 / 生菜，120 天，看跨畦争水争氮           |
 | `salvador-leafy`      | 萨尔瓦多 · 大棚叶菜             | 同一棚架换茬生菜，60 天短周期，43.8 t/ha                           |
 | `salvador-observed`   | 萨尔瓦多 · 大棚番茄（实测气象） | 同上一套农艺参数，气象换 2025/26 Open-Meteo 实测，130 天 66.0 t/ha |
 
@@ -214,12 +264,14 @@ flowchart LR
         U[控制面板] --> S
     end
     U -->|POST /api/runs| A[FastAPI]
+    U -.->|GET /api/crops · /api/limits| A
     A --> E[engine.run_scenario]
     E --> W[weather.py<br/>合成气候 / Open-Meteo]
     E --> L[climate.py<br/>土壤剖面]
     W -.->|synthetic| L
     E --> G[agronomy.py<br/>水分 · 氮素 · 冠层]
-    E --> F[CropForge<br/>作物插件 + Parquet]
+    E --> M[mosaic.py<br/>逐格作物调度]
+    M --> F[CropForge<br/>作物插件 + Parquet]
     E --> B[frames.py<br/>量化成 uint8 + base64]
     B --> A
     A -->|bundle JSON| S
@@ -231,14 +283,20 @@ flowchart LR
 
 ## API
 
-| 方法   | 路径             | 说明                                                                |
-| ------ | ---------------- | ------------------------------------------------------------------- |
-| GET    | `/api/health`    | 版本与引擎自检                                                      |
-| GET    | `/api/presets`   | 内置场景及其完整配置                                                |
-| GET    | `/api/weather`   | `?lat=&lon=&start=&days=` 取实测逐日气象，可加 `protected=true`     |
-| POST   | `/api/runs`      | `{"preset": "rabi-wheat"}` 或 `{"config": {...}}`，命中缓存直接返回 |
-| GET    | `/api/runs`      | 已缓存运行的摘要列表                                                |
-| DELETE | `/api/runs/{id}` | 删除缓存                                                            |
+| 方法   | 路径             | 说明                                                                                              |
+| ------ | ---------------- | ------------------------------------------------------------------------------------------------- |
+| GET    | `/api/health`    | 版本与引擎自检                                                                                    |
+| GET    | `/api/presets`   | 内置场景及其完整配置；`default: true` 标出默认场景                                                |
+| GET    | `/api/crops`     | 可选作物：显示名、是否支持逐格混作、全生育期积温、根区深度                                        |
+| GET    | `/api/limits`    | `rows` / `cols` / `days` 的上下界，直接取自校验器，界面滑块照此设置                               |
+| GET    | `/api/weather`   | `?lat=&lon=&start=&days=` 取实测逐日气象，可加 `protected=true`                                   |
+| POST   | `/api/runs`      | `{"preset": "salvador-greenhouse"}` 或 `{"config": {...}}`，命中缓存直接返回                       |
+| GET    | `/api/runs`      | 已缓存运行的摘要列表                                                                              |
+| DELETE | `/api/runs/{id}` | 删除缓存                                                                                          |
+
+`config` 一旦给出就**整体取代** `preset`——不是打补丁。界面因此总是先取出预设的完整配置，
+再改 `rows` / `cols` / `days` / `crop_map` 后提交；只发三个字段会得到一份按默认值补齐的
+场景（作物变回小麦），这是有意为之：合并语义无法区分「没给」和「给了默认值」。
 
 交互式文档：`/api/docs`。
 
@@ -250,9 +308,10 @@ uv run pytest
 cd frontend && pnpm lint && pnpm fmt:check && pnpm typecheck && pnpm build
 ```
 
-`pytest` 是唯一的开发依赖（`uv add --group dev pytest`）；134 个用例约五秒，不联网
-（`test_econ_farm.py` 里每个用例都在真跑农场季运行）。覆盖范围见
-[`docs/economics.md`](docs/economics.md#测试) 与 [`docs/crops.md`](docs/crops.md#加载时校验)。
+`pytest` 是唯一的开发依赖（`uv add --group dev pytest`）；145 个用例约六秒，不联网
+（`test_econ_farm.py` 里每个用例都在真跑农场季运行，`test_mosaic.py` 里有一个 4×6 混作的
+端到端小跑）。覆盖范围见 [`docs/economics.md`](docs/economics.md#测试)、
+[`docs/crops.md`](docs/crops.md#加载时校验)。
 
 `ruff` / `ty` / `oxlint` / `oxfmt` 都不是项目依赖：它们由系统环境提供
 （`scoop install ruff ty oxlint oxfmt`），`uv sync` 与 `pnpm install` 都不会装，
@@ -262,11 +321,12 @@ cd frontend && pnpm lint && pnpm fmt:check && pnpm typecheck && pnpm build
 
 ```text
 rancho/
-  scenario.py   场景配置与七个预设
+  scenario.py   场景配置、逐格作物布局与八个预设
   climate.py    合成气候与土壤剖面（同一 seed 逐位可复现）
   weather.py    按经纬度取气象（Open-Meteo）、缓存、CSV 序列化
-  agronomy.py   逐格水分、氮素、冠层
+  agronomy.py   逐格水分、氮素、冠层（系数按格取，不按田取）
   vegetables.py 大棚蔬菜插件（番茄 / 黄瓜 / 生菜）
+  mosaic.py     逐格作物调度：每株交给它那一格的作物插件
   crops/        作物模板（TOML）+ 物候词汇 + 加载校验
   engine.py     组装 Farm，跑一次仿真
   frames.py     Parquet → 渲染用 bundle
@@ -275,9 +335,9 @@ rancho/
   cli.py        dev / serve / simulate / weather / presets / crops / econ
   econ/         经济层：参数、外生序列、产量函数、农场驱动、Mesa 竞价、三臂对照、报告
 frontend/src/
-  scene.ts      Three.js：地形、冠层实例、雨、拾取
+  scene.ts      Three.js：地形、冠层实例、雨、拾取与绘制
   chart.ts      p5.js：全季小多图
-  main.ts       状态与交互
+  main.ts       状态与交互：场景、布局画笔、网格滑块
 docs/
   salvador-greenhouse.md  设施改造的场地判读、茬口与水肥依据
   weather.md              实测气象的来源、字段映射、缓存与局限
@@ -286,6 +346,7 @@ docs/
 tests/
   support.py              不跑模型就造一份 arm 快照
   test_crops.py           模板复现原值（精确相等）与每条校验规则
+  test_mosaic.py          逐格混作：布局校验、分发器、按格水氮、端到端小跑
   test_econ_market.py     序贯配置与逾配记账
   test_econ_verdict.py    三臂判据的阈值边界
   test_econ_forcing.py    电价形状、日光窗口、水价区间

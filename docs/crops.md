@@ -67,8 +67,17 @@ rancho/crops/
 | `n_concentration` | kg/kg | > 0 | 植株组织含氮率，用于带走量 |
 | `splits` | 季内累积比 | 严格递增且落在 (0, 1] | 追肥时点，如 `0.18` = 第 18 % 生育期 |
 
-`[product]`：`dry_matter_fraction`（干物质率，干重折鲜重）、`marketable_fraction`
-（商品率），均落在 (0, 1]。
+`[product]`——「卖出去的是什么」：
+
+| 字段                   | 单位 | 约束     | 说明                                                                     |
+| ---------------------- | ---- | -------- | ------------------------------------------------------------------------ |
+| `dry_matter_fraction`  | —    | (0, 1]   | 干物质率，干重折鲜重用；谷物按收获水分计，取 1.0                         |
+| `marketable_fraction`  | —    | (0, 1]   | 商品率，扣除裂果、次品后的可售比例                                       |
+| `harvest_index`        | —    | (0, 0.95]| 地上干物质进入收获器官的比例；番茄 0.32、黄瓜 0.55、生菜 0.78、谷物 0.38–0.46 |
+
+收获指数归 `[product]` 而不是情景，是因为「整株里有多少能卖」和「卖的那部分是几成干物质」
+本来就是一个问题；**逐格混作**下每种作物要各折各的，情景里再留一个全局值就没有意义了。
+`ScenarioConfig.harvest_index` 保留为实验用覆盖（默认 `None` = 取模板），预设都不再写它。
 
 `[market]`——只有经济层读，谷物不写：
 
@@ -107,8 +116,11 @@ rancho/crops/
 
 - `vegetables.VegetableProfile`（插件读的扁平运行时视图；有物候段的作物才有）
 - `agronomy.CROP_WATER`（根区水量平衡；经济层也取这一份）
-- `scenario.CROP_PROFILES`（干物质率与商品率，用于干重折鲜重）
+- `scenario.CROP_PROFILES`（干物质率、商品率、收获指数，用于干重折鲜重）
 - `econ.CropSpec`（售价、温度响应、光响应、`transplant_lai`）
+
+有物候段的作物还额外获得一张通行证：`scenario.MOSAIC_KEYS` 由 `has_phenology` 算出，
+进了这张表的作物才能写进 `crop_map` 逐格混作（见 README「逐格混作」）。
 
 `uv run rancho crops` 打印当前生效的五份模板、来源（自建物候 / CropForge 插件）与路径，
 改完可先核对一眼。

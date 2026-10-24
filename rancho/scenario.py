@@ -202,6 +202,13 @@ class ScenarioConfig(BaseModel):
                 f"逐格混作只支持 Rancho 自带物候的作物 {sorted(MOSAIC_KEYS)}，"
                 f"不支持 {foreign}（它们的物候由 CropForge 插件整块推进）"
             )
+        # The nominal crop has to be one of them too: it is what the field
+        # reports, what a single-crop run grows and what the engine picks its
+        # plugin from, so a wheat field cannot quietly claim a tomato layout.
+        if self.crop not in MOSAIC_KEYS:
+            raise ValueError(
+                f"混作场景的 crop 必须取自 {sorted(MOSAIC_KEYS)}，当前是 {self.crop!r}"
+            )
         return self
 
     @property

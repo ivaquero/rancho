@@ -77,6 +77,8 @@ class App {
   private speed = 90;
   private lastTick = 0;
   private brush = "tomato";
+  private baseCrop = "tomato";
+  private canMix = true;
   private rows = 18;
   private cols = 40;
   private days = 130;
@@ -140,7 +142,6 @@ class App {
     // adding a TOML template or widening a validator needs no client change.
     this.crops = await listCrops().catch(() => []);
     this.limits = await listLimits().catch(() => null);
-    this.renderPalette();
     this.adoptPreset();
     if (this.limits) {
       for (const [key, input] of [
@@ -265,6 +266,8 @@ class App {
     this.days = Number(config.days ?? this.days) || this.days;
 
     const laid = config.crop_map;
+    this.baseCrop = String(config.crop ?? this.baseCrop);
+    this.canMix = this.crops.find((crop) => crop.key === this.baseCrop)?.mixable ?? false;
     if (Array.isArray(laid) && laid.length === this.rows * this.cols) {
       this.cropMap = laid.map(String);
     } else {
@@ -277,6 +280,10 @@ class App {
     if (!this.cropMap.includes(this.brush)) {
       this.brush = this.cropMap[0] ?? this.crops[0]?.key ?? "tomato";
     }
+    for (const id of ["fill-all", "fill-bands", "reset-crops"] as const) {
+      el<HTMLButtonElement>(id).disabled = !this.canMix;
+    }
+    el<HTMLInputElement>("paint-mode").disabled = !this.canMix;
     this.renderPalette();
     this.syncGrid();
   }
@@ -336,6 +343,7 @@ class App {
   }
 
   private paint(row: number, col: number): void {
+    if (!this.canMix) return;
     const index = row * this.cols + col;
     if (index < 0 || index >= this.cropMap.length) return;
     if (this.cropMap[index] === this.brush) return;
@@ -356,12 +364,17 @@ class App {
   private buildConfig(): Record<string, unknown> {
     const preset = this.presets.find((item) => item.id === el<HTMLSelectElement>("preset").value);
     const base = (preset?.config ?? {}) as Record<string, unknown>;
+    // A field planted start to finish with the scenario's own crop is not a
+    // mosaic: sending no map keeps cereal scenarios valid, because their
+    // phenology is CropForge's and cannot be planted cell by cell.
+    const keys = this.layoutKeys();
+    const uniform = keys.length === 1 && keys[0] === String(base.crop ?? "");
     return {
       ...base,
       rows: this.rows,
       cols: this.cols,
       days: this.days,
-      crop_map: [...this.cropMap],
+      crop_map: uniform ? null : [...this.cropMap],
     };
   }
 
@@ -439,12 +452,17 @@ class App {
     const container = el("palette");
     container.innerHTML = "";
     const mixable = this.crops.filter((crop) => crop.mixable);
+    const allowed = this.canMix;
+    el("layout-hint").textContent = allowed
+      ? "点击或拖拽地块给格子换作物，改动后自动重跑。"
+      : "该场景的作物物候由 CropForge 插件整块推进，不支持逐格混作。";
     if (!mixable.length) return;
     mixable.forEach((crop, index) => {
       const button = document.createElement("button");
       button.type = "button";
       button.className = "chip chip--crop";
       button.dataset.crop = crop.key;
+      button.disabled = !allowed;
       button.setAttribute("aria-pressed", String(crop.key === this.brush));
       const swatch = document.createElement("i");
       swatch.className = "swatch";

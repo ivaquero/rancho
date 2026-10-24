@@ -127,7 +127,8 @@ def test_each_plant_advances_on_its_own_crops_climate() -> None:
     thermal = [round(plant.custom["thermal_time"], 3) for plant in state.plants]
     # tomato counts degree-days above 10 °C, lettuce above 4 °C: same weather,
     # different sums — so a plant that got the wrong plugin shows up here.
-    assert thermal == [10.0, 16.0] * 8
+    expected = [10.0 if key == "tomato" else 16.0 for key in MIXED]
+    assert thermal == expected
 
 
 def test_a_uniform_map_is_indistinguishable_from_the_plugin_itself() -> None:
@@ -156,23 +157,29 @@ def test_a_mismatched_map_is_refused_before_any_plant_moves() -> None:
 
 
 def _mixed_config(**overrides: object) -> ScenarioConfig:
-    options: dict[str, object] = {
-        "crop": "tomato",
-        "rows": ROWS,
-        "cols": COLS,
-        "crop_map": MIXED,
-        "irrigation": False,
-        "soil_pattern": "uniform",
-        "soil_variation": 0.0,
-        "fertiliser_kg_ha": 0.0,
-    }
-    options.update(overrides)
-    return ScenarioConfig(**options)  # type: ignore[arg-type]
+    """A mixed tomato / lettuce field, flat and rainfed, with nothing fed to it."""
+    cfg = ScenarioConfig(
+        crop="tomato",
+        rows=ROWS,
+        cols=COLS,
+        crop_map=MIXED,
+        irrigation=False,
+        soil_pattern="uniform",
+        soil_variation=0.0,
+        fertiliser_kg_ha=0.0,
+    )
+    return cfg.model_copy(update=dict(overrides)) if overrides else cfg
 
 
 def _soil_field(cfg: ScenarioConfig) -> object:
     return build_soil_field(
-        cfg.soil, rows=cfg.rows, cols=cfg.cols, pattern="uniform", variation=0.0, seed=7
+        cfg.soil,
+        rows=cfg.rows,
+        cols=cfg.cols,
+        pattern="uniform",
+        variation=0.0,
+        seed=7,
+        elevation=np.zeros((cfg.rows, cfg.cols), dtype=np.float64),
     )
 
 
@@ -208,11 +215,12 @@ def test_each_crop_is_fed_on_its_own_schedule() -> None:
 
     fed: dict[str, list[int]] = {"tomato": [], "lettuce": []}
     for day in range(1, 101):
-        before = model._nitrogen.copy()  # noqa: SLF001 — nitrogen is the observable
+        # Nitrogen is the observable: the beds are fed on different days.
+        before = model._nitrogen.copy()
         env = _env()
         env.day = day
         model.step(state, env)
-        after = model._nitrogen  # noqa: SLF001
+        after = model._nitrogen
         for key, cell in (("tomato", (0, 0)), ("lettuce", (0, 1))):
             row, col = cell
             if float(after[row, col]) - float(before[row, col]) > 1.0:
