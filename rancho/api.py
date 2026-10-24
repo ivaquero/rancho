@@ -15,7 +15,7 @@ from pydantic import BaseModel
 
 from rancho import __version__
 from rancho.crops import TEMPLATES
-from rancho.engine import run_id_for, run_scenario
+from rancho.engine import RunBusyError, run_id_for, run_scenario
 from rancho.scenario import (
     DEFAULT_PRESET,
     MOSAIC_KEYS,
@@ -177,7 +177,12 @@ def create_app(work_root: Path, dist_dir: Path | None = None) -> FastAPI:
             config.days,
             config.crop,
         )
-        bundle = run_scenario(config, work_root)
+        try:
+            bundle = run_scenario(config, work_root, wait=False)
+        except RunBusyError as exc:
+            # Refusing beats queueing: the caller learns in milliseconds that
+            # the engine is busy instead of waiting out someone else's run.
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
         store.put(bundle)
         return bundle
 

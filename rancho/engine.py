@@ -45,6 +45,30 @@ PLUGINS: dict[str, type] = {
 _RUN_LOCK = threading.Lock()
 
 
+class RunBusyError(RuntimeError):
+    """Raised instead of queueing when the process-wide engine is already taken."""
+
+
+@contextmanager
+def _engine_slot(wait: bool = True) -> Generator[None]:
+    """Take the one engine this process has, or refuse.
+
+    CropForge resolves its Parquet log from the *process* working directory
+    (``StateLogger`` defaults ``output_root`` to a relative path and offers no
+    per-run override), so a run has to own the working directory while it lasts
+    and only one can be in flight.  ``wait=False`` raises
+    :class:`RunBusyError` instead of queueing: the largest field the sliders
+    allow takes minutes, and a request queued behind it is indistinguishable
+    from a hung server — a refusal is something the caller can act on.
+    """
+    if not _RUN_LOCK.acquire(blocking=wait):
+        raise RunBusyError("已有仿真在运行，请等它结束后再试")
+    try:
+        yield
+    finally:
+        _RUN_LOCK.release()
+
+
 def run_id_for(cfg: ScenarioConfig) -> str:
     """Stable identifier for a scenario — identical configs reuse the cached run."""
     payload = cfg.model_dump_json()
@@ -135,8 +159,18 @@ def _build_field(
     return field
 
 
-def run_scenario(cfg: ScenarioConfig, work_root: Path) -> dict[str, Any]:
-    """Execute one scenario and return the render-ready bundle."""
+def run_scenario(
+    cfg: ScenarioConfig,
+    work_root: Path,
+    *,
+    wait: bool = True,
+) -> dict[str, Any]:
+    """Execute one scenario and return the render-ready bundle.
+
+    *wait* decides what happens when another run already owns the engine: queue
+    behind it (the default, which is what a CLI invocation wants) or raise
+    :class:`RunBusyError` at once, which is what an HTTP request wants.
+    """
     run_id = run_id_for(cfg)
     session_dir = work_root / run_id
     inputs_dir = session_dir / "inputs"
@@ -183,7 +217,7 @@ def run_scenario(cfg: ScenarioConfig, work_root: Path) -> dict[str, Any]:
     farm.step(phase=3)(agronomy.adjust_canopy)
 
     started = time.perf_counter()
-    with _RUN_LOCK, _working_directory(work_dir):
+    with _engine_slot(wait), _working_directory(work_dir):
         farm.run(days=cfg.days)
     elapsed = time.perf_counter() - started
 

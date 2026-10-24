@@ -83,7 +83,10 @@ class App {
   private cols = 40;
   private days = 130;
   private cropMap: string[] = [];
+  private paletteSignature = "";
   private rerunTimer: number | null = null;
+  private running = false;
+  private rerunQueued = false;
   private readonly channelBuffers = new Map<string, Float32Array>();
 
   constructor() {
@@ -312,7 +315,9 @@ class App {
     const cells = this.rows * this.cols;
     el("grid-hint").textContent =
       `${this.rows} × ${this.cols} = ${cells} 格 · ${(cells / 10_000).toFixed(3)} ha` +
-      (cells > 2400 ? " · 格数较多，跑一次可能要半分钟" : "");
+      // Measured on the reference machine: a run costs roughly one second per
+      // 25 000 cell-days, so the largest field the sliders allow is a minute.
+      (cells > 2400 ? " · 格数较多，跑一次要十几秒到一分钟" : "");
     this.pushLayout();
   }
 
@@ -334,8 +339,21 @@ class App {
       this.renderLegend();
     }
     this.renderCropMix();
+    // Swatch colours follow the layout, so they only move when the set of
+    // planted crops does — not on every cell a drag paints.
+    const signature = keys.join(",");
+    if (signature !== this.paletteSignature) {
+      this.paletteSignature = signature;
+      this.renderPalette();
+    }
   }
 
+  /** Crops planted right now, in first-appearance order.
+   *
+   * Mirrors `crop_keys` on the server (`grid.crop_index` is indexed into it), and
+   * is also the order the palette and the legend take their colours from — so it
+   * has to stay first-appearance, not alphabetical.
+   */
   private layoutKeys(): string[] {
     const keys: string[] = [];
     for (const key of this.cropMap) if (!keys.includes(key)) keys.push(key);
@@ -379,6 +397,15 @@ class App {
   }
 
   private async runScenario(): Promise<void> {
+    // The largest field takes minutes and the engine serialises runs anyway, so
+    // a second request would only queue behind the first and make both late.
+    // Remember that the configuration moved on and re-run once this one lands.
+    if (this.running) {
+      this.rerunQueued = true;
+      return;
+    }
+    this.running = true;
+
     const runButton = el<HTMLButtonElement>("run");
     const overlay = el("overlay");
     const overlayText = el("overlay-text");
@@ -398,10 +425,19 @@ class App {
       status.textContent = `就绪 · ${bundle.meta.days} 天 · ${seconds} 秒`;
       overlay.hidden = true;
     } catch (error) {
-      overlayText.textContent = `仿真失败：${String(error)}`;
       status.textContent = "仿真失败";
+      overlayText.textContent = `仿真失败：${String(error)}`;
+      // Leaving the cover up hides a field that is still perfectly readable,
+      // and the timeline would stay paused for no reason.
+      overlay.hidden = true;
+      if (this.bundle) this.play();
     } finally {
+      this.running = false;
       runButton.disabled = false;
+      if (this.rerunQueued) {
+        this.rerunQueued = false;
+        void this.runScenario();
+      }
     }
   }
 
@@ -457,6 +493,11 @@ class App {
       ? "点击或拖拽地块给格子换作物，改动后自动重跑。"
       : "该场景的作物物候由 CropForge 插件整块推进，不支持逐格混作。";
     if (!mixable.length) return;
+    // The field colours a cell by its index in *this* layout, not by its index
+    // among all mixable crops — otherwise the chip for lettuce is yellow while
+    // the bed it paints is brick red.  Crops not planted yet have no layout
+    // index, so they fall back to the mixable one and stay distinct.
+    const planted = this.layoutKeys();
     mixable.forEach((crop, index) => {
       const button = document.createElement("button");
       button.type = "button";
@@ -464,9 +505,11 @@ class App {
       button.dataset.crop = crop.key;
       button.disabled = !allowed;
       button.setAttribute("aria-pressed", String(crop.key === this.brush));
+      const plantedIndex = planted.indexOf(crop.key);
+      const swatchIndex = plantedIndex >= 0 ? plantedIndex : index;
       const swatch = document.createElement("i");
       swatch.className = "swatch";
-      swatch.style.background = CROP_SWATCHES[index % CROP_SWATCHES.length] as string;
+      swatch.style.background = CROP_SWATCHES[swatchIndex % CROP_SWATCHES.length] as string;
       button.append(swatch, document.createTextNode(crop.label));
       button.addEventListener("click", () => {
         this.brush = crop.key;

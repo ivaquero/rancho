@@ -8,6 +8,7 @@ engine never fails halfway through a run.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Literal
 
@@ -253,12 +254,23 @@ def crop_grid(cfg: ScenarioConfig) -> list[str]:
     return list(cfg.crop_map)
 
 
+def unique_in_order(keys: Iterable[str]) -> tuple[str, ...]:
+    """De-duplicate *keys*, keeping first appearance.
+
+    One order, one implementation: the water balance, the growth dispatcher and
+    the client's colour lookup all index into this tuple, so they have to agree
+    on it.  "First appearance" rather than alphabetical is deliberate — it is
+    the order the beds were planted in.
+    """
+    seen: dict[str, None] = {}
+    for key in keys:
+        seen.setdefault(key, None)
+    return tuple(seen)
+
+
 def crop_keys(cfg: ScenarioConfig) -> tuple[str, ...]:
     """Every crop planted in this scenario, in the order the UI should show them."""
-    keys: dict[str, None] = {}
-    for key in crop_grid(cfg):
-        keys.setdefault(key, None)
-    return tuple(keys)
+    return unique_in_order(crop_grid(cfg))
 
 
 def crop_indices(cfg: ScenarioConfig) -> list[int]:

@@ -21,7 +21,14 @@ from cropforge.state import EnvironmentState, PlantState
 from rancho.agronomy import AgronomyModel
 from rancho.climate import SoilField, build_soil_field
 from rancho.mosaic import CropMosaic
-from rancho.scenario import MOSAIC_KEYS, ScenarioConfig, crop_grid, crop_indices, crop_keys
+from rancho.scenario import (
+    MOSAIC_KEYS,
+    ScenarioConfig,
+    crop_grid,
+    crop_indices,
+    crop_keys,
+    unique_in_order,
+)
 from rancho.vegetables import PLUGINS as VEGETABLE_PLUGINS
 
 #: The smallest field the scenario accepts.
@@ -88,6 +95,21 @@ def test_a_layout_is_read_in_first_appearance_order() -> None:
     cfg = ScenarioConfig(crop="tomato", rows=ROWS, cols=COLS, crop_map=MIXED)
     assert crop_keys(cfg) == ("tomato", "lettuce")
     assert crop_indices(cfg) == [int(index) for index in "0101101001011010"]
+
+
+def test_the_dispatcher_and_the_scenario_agree_on_the_order() -> None:
+    """Three consumers index into the same tuple; they must build it the same way.
+
+    :meth:`CropMosaic.keys` picks the sub-plugin per cell, ``crop_keys`` gives
+    the client the index it colours cells with, and the agronomy model resolves
+    its per-crop coefficients through it.  A different order in any one of them
+    grows or colours the wrong bed.
+    """
+    cfg = ScenarioConfig(crop="tomato", rows=ROWS, cols=COLS, crop_map=MIXED)
+    dispatcher = CropMosaic(crop_map=crop_grid(cfg), rows=ROWS, cols=COLS)
+    assert dispatcher.keys == crop_keys(cfg)
+    # And the plain helper both of them use, on its own.
+    assert unique_in_order(["lettuce", "tomato", "lettuce"]) == ("lettuce", "tomato")
 
 
 def test_a_map_that_does_not_cover_the_field_is_refused() -> None:

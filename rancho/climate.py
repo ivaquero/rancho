@@ -30,7 +30,15 @@ from rancho.weather import WeatherDay, WeatherSeries
 #: reproducible byte for byte no matter when the run happens.
 SYNTHETIC_EPOCH: Final = date(2026, 1, 1)
 
-LAYERS: Final[tuple[tuple[float, float], ...]] = ((0.0, 20.0), (20.0, 50.0), (50.0, 90.0))
+#: One layer, not three.  CropForge logs one row per (cell, layer) *per day*,
+#: so a three-layer profile triples the daily soil rows — 75 % of every day's
+#: log at any grid size — while nothing downstream reads past the surface:
+#: :mod:`rancho.agronomy` keeps its own single-layer root-zone bucket and
+#: :mod:`rancho.frames` pivots the top layer only.  Dropping the two buried
+#: layers is worth roughly 40 % of a run's wall time and changes no number
+#: (checked preset by preset).  Revisit only if CropForge's own
+#: ``water_balance`` engine is ever switched on — that one does walk the column.
+LAYERS: Final[tuple[tuple[float, float], ...]] = ((0.0, 20.0),)
 
 #: Display names for the climate profiles (Chinese UI labels).
 CLIMATE_LABELS: Final[dict[ClimateKind, str]] = {

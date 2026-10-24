@@ -25,6 +25,7 @@ from typing import Any
 
 from cropforge._plugins_base import CropPlugin
 
+from rancho.scenario import unique_in_order
 from rancho.vegetables import PLUGINS as VEGETABLE_PLUGINS
 from rancho.vegetables import GreenhouseVegetable
 
@@ -60,10 +61,7 @@ class CropMosaic(CropPlugin):
                 f"crop_map 有 {len(map_list)} 项，地块是 {rows}×{cols}（应 {rows * cols} 项）"
             )
 
-        keys: dict[str, None] = {}
-        for key in map_list:
-            keys.setdefault(key, None)
-        self.keys: tuple[str, ...] = tuple(keys)
+        self.keys: tuple[str, ...] = unique_in_order(map_list)
         lookup = {key: index for index, key in enumerate(self.keys)}
 
         unknown = [key for key in self.keys if key not in CELL_PLUGINS]
