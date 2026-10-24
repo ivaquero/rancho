@@ -4,7 +4,7 @@
 这保证了可复现，但萨尔瓦多的真实旱季辐射、昼夜温差和雨量分配，跟任何一套参数化曲线都不完全一样。
 本模块补上第二条路——按经纬度取开源实测数据，两条路写同一份 CSV、走同一个 FAO-56 链路。
 
-代码：`src/rancho/weather.py`（取数与序列化）、`src/rancho/climate.py`（合成器）。
+代码：`rancho/weather.py`（取数与序列化）、`rancho/climate.py`（合成器）。
 
 ## 数据源
 

@@ -1,0 +1,48 @@
+# 生菜 · 大棚叶菜（Rancho 模板 v1）
+#
+# 短周期、低售价、最怕热：争冷时报价最凶，产量却最不经压。字段含义见 docs/crops.md。
+
+id = "lettuce"
+label = "生菜"
+species = "Lactuca sativa"
+base_temp_c = 4.0                   # 冷凉作物，4 °C 起算积温
+
+# 四次物候，没有独立的出苗段：苗期从定植苗直接起算。
+[[stages]]
+name = "germination"
+gdd = 0.0
+
+[[stages]]
+name = "seedling"
+gdd = 60.0
+
+[[stages]]
+name = "vegetative"
+gdd = 180.0
+
+[[stages]]
+name = "maturity"
+gdd = 520.0                         # 全季 520 °C·d，约 50–60 天
+
+[growth]
+rue = 0.80                          # 叶菜截获效率低于果菜
+lai_slope = 0.0035
+lai_max = 4.5                       # 叶球贴地铺开，LAI 反而最高
+senescence_rate = 0.020
+senescence_stages = []              # 边生长边采收，没有衰老段
+
+[structure]
+k_height = 3.2                      # 株型矮，√g 系数小
+max_height_cm = 30.0                # 叶球高度约 30 cm
+
+[water]
+root_zone_mm = 200.0                # 浅根，20 cm 土深
+kc_mid = 1.00
+depletion_fraction = 0.35           # 更严格：缺水立即影响商品性
+k_extinction = 0.70
+n_concentration = 0.035
+splits = [0.05, 0.30, 0.55]         # 三次追肥
+
+[product]
+dry_matter_fraction = 0.050
+marketable_fraction = 0.90

@@ -1,0 +1,68 @@
+# 番茄 · 大棚栽培（Rancho 模板 v1）
+#
+# 改这个文件就是改作物本身：生长插件、根区水氮、产品折算三处参数都从这里读，
+# 不必再去改 Python。保存后重启进程生效（模板在 import 时加载并校验）。
+# 字段含义与单位见 docs/crops.md；校验规则见 rancho/crops/__init__.py。
+
+id = "tomato"                       # 必须等于文件名，也是 scenario.crop 的取值
+label = "番茄"                       # 界面、报告、账本上的显示名
+species = "Solanum lycopersicum"
+base_temp_c = 10.0                  # 热时间基温 °C，低于此温度不计积温
+
+# 物候阈值：gdd 是进入该阶段所需的累计有效积温（°C·d），从播种起算。
+# 必须从 0.0 开始、严格递增；名称取自 scenario.STAGE_ORDER。
+# 番茄的「成熟」定在 1900：果期长，拉到拔秧为止。
+[[stages]]
+name = "germination"
+gdd = 0.0
+
+[[stages]]
+name = "emergence"
+gdd = 55.0
+
+[[stages]]
+name = "seedling"
+gdd = 110.0
+
+[[stages]]
+name = "vegetative"
+gdd = 300.0
+
+[[stages]]
+name = "flowering"
+gdd = 500.0
+
+[[stages]]
+name = "fruit_set"
+gdd = 600.0
+
+[[stages]]
+name = "fruiting"
+gdd = 700.0
+
+[[stages]]
+name = "maturity"
+gdd = 1900.0
+
+[growth]
+rue = 1.55                          # 辐射利用效率：每 MJ 截获辐射的干物质克数
+lai_slope = 0.0045                  # 冠层张开期每 °C·d 增加的 LAI
+lai_max = 3.4                       # 封行后的叶面积上限
+senescence_rate = 0.012             # 进入衰老阶段后每日 LAI 损失比例
+senescence_stages = ["maturity"]    # 结果期仍更新冠层，成熟才衰老
+
+[structure]
+k_height = 8.0                      # 株高异速：cm per √g 干物质
+max_height_cm = 220.0               # 吊蔓钢丝高度，冠层到此封顶
+
+[water]
+root_zone_mm = 450.0                # 有效根区贮水量（滴灌番茄取 45 cm 土深）
+kc_mid = 1.15                       # FAO-56 生育中期作物系数
+depletion_fraction = 0.40           # FAO-56 允许消耗比例 p
+k_extinction = 0.65                 # Beer-Lambert 消光系数，用于冠层配光
+n_concentration = 0.032             # 植株组织含氮率，用于带走量
+splits = [0.03, 0.18, 0.34, 0.50, 0.66, 0.80]   # 六次追肥所在的季内累积时点
+
+[product]
+dry_matter_fraction = 0.055         # 鲜果干物质率，干重折鲜重用
+marketable_fraction = 0.92          # 商品率，扣除裂果与次品

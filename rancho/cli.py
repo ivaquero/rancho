@@ -101,6 +101,7 @@ def _build_parser() -> argparse.ArgumentParser:
     weather.add_argument("--timeout", type=float, default=20.0)
 
     subparsers.add_parser("presets", help="列出内置场景")
+    subparsers.add_parser("crops", help="列出作物模板（TOML）及其路径")
 
     econ = subparsers.add_parser("econ", help="大棚经济层原型：Mesa 竞价、成本曲线与验证")
     econ.add_argument("--site", default="tropical", help="气象站点：tropical / temperate")
@@ -393,6 +394,23 @@ def _presets() -> int:
     return 0
 
 
+def _crops() -> int:
+    """Print the loaded templates — the manual-entry checklist, in one place."""
+    from rancho.crops import TEMPLATE_DIR, TEMPLATES
+
+    for key, crop in TEMPLATES.items():
+        print(f"{key:<10} {crop.label}")
+        print(
+            f"{'':<10} 积温 {crop.season_gdd:>6.0f} °C·d · RUE {crop.growth.rue:.2f} · "
+            f"LAI≤ {crop.growth.lai_max:.1f} · 根区 {crop.water.root_zone_mm:.0f} mm · "
+            f"Kc {crop.water.kc_mid:.2f} · p {crop.water.depletion_fraction:.2f} · "
+            f"追肥 {len(crop.water.splits)} 次"
+        )
+        print(f"{'':<10} {crop.species} · {len(crop.stages)} 个物候阶段")
+    print(f"\n模板目录 : {TEMPLATE_DIR}")
+    return 0
+
+
 def _econ(args: argparse.Namespace) -> int:
     """Run the greenhouse economics probe and write the report bundle."""
     from rancho.econ.probe import probe
@@ -473,6 +491,8 @@ def main(argv: list[str] | None = None) -> int:
             return _weather(args)
         case "presets":
             return _presets()
+        case "crops":
+            return _crops()
         case "econ":
             return _econ(args)
     return 1

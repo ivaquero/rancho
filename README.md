@@ -69,7 +69,7 @@ Rancho 在它之上补了三处，因为原实现会让整块地长出一样的�
 | 氮素 | Rancho | 矿化 + 三次追肥 − 作物带走 − 淋洗，逐格独立 |
 | 冠层 | Rancho | 插件只按热时间累积 LAI，与胁迫脱钩；Rancho 在插件之后按供给系数缩放 |
 
-具体做法（`src/rancho/agronomy.py`）：
+具体做法（`rancho/agronomy.py`）：
 
 1. **降水与径流**：坡面径流不丢弃，按最陡下降方向送给下游格，洼地因此更湿。
 2. **分区灌溉**：设施只覆盖地块的一部分（掩膜由土壤深度的分位数生成），
@@ -88,7 +88,7 @@ Rancho 在它之上补了三处，因为原实现会让整块地长出一样的�
 | --- | --- |
 | 气候 | 新增 `tropical`：23–27 ℃ 全年、11 月–4 月旱季、5–10 月雨季，降雨概率本身按余弦调制而不是常年恒定 |
 | 棚内小气候 | `protected=True` 后降雨置零、辐射乘 `cover_transmission`（膜 0.85 × 遮阳网 0.65 ≈ 0.55）、风速降到 0.2 m/s、湿度上调；ET₀ 从露天 3.5–4 mm/d 降到 2.0–2.7 mm/d |
-| 作物 | `src/rancho/vegetables.py` 提供番茄 / 黄瓜 / 生菜插件：热时间物候到采收、吊蔓限高、结果期冠层仍在更新 |
+| 作物 | `rancho/vegetables.py` 提供番茄 / 黄瓜 / 生菜插件：热时间物候到采收、吊蔓限高、结果期冠层仍在更新 |
 | 水肥 | 根区深度、Kc、允许消耗比例按作物取（`agronomy.CROP_WATER`）：番茄 450 mm / 1.15 / 0.40，不再是谷物的 300 mm / 1.05 / 0.50 |
 | 产量 | 收获指数给出的是果实干物质，再按干物质率与商品率折成鲜重可售产量 |
 
@@ -105,7 +105,7 @@ Rancho 在它之上补了三处，因为原实现会让整块地长出一样的�
 | `synthetic`（默认） | `climate.py` | 气候档位的季节曲线 + 固定种子，完全离线、逐位可复现 |
 | `open-meteo` | [Open-Meteo](https://open-meteo.com/) | 按经纬度取 ERA5 再分析（0.25° ≈ 25 km），日期由 `weather.year` + `sowing_doy` 定位 |
 
-字段映射（`src/rancho/weather.py`）：
+字段映射（`rancho/weather.py`）：
 
 | CSV 列 | Open-Meteo 日变量 | 单位处理 |
 | --- | --- | --- |
@@ -247,7 +247,7 @@ cd frontend && pnpm lint && pnpm fmt:check && pnpm typecheck && pnpm build
 ## 目录
 
 ```
-src/rancho/
+rancho/
   scenario.py   场景配置与七个预设
   climate.py    合成气候与土壤剖面（同一 seed 逐位可复现）
   weather.py    按经纬度取气象（Open-Meteo）、缓存、CSV 序列化

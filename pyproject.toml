@@ -19,34 +19,26 @@ dependencies = [
 [project.scripts]
 rancho = "rancho.cli:main"
 
-[build-system]
-requires = ["uv_build>=0.13.5,<0.14.0"]
-build-backend = "uv_build"
-
 # ----------------------------------------------------------- dev tools ----
 [dependency-groups]
 dev = ["pytest>=9.1.1"]
 
+[build-system]
+requires = ["uv_build>=0.13.5,<0.14.0"]
+build-backend = "uv_build"
+
 # -------------------------------------------------------------- pytest ----
 [tool.pytest.ini_options]
-testpaths = ["tests"]
-pythonpath = ["tests"]
 addopts = "-q"
-filterwarnings = [
-    # Same reason as the guard in ``rancho/cli.py``: importing ``cropforge``
-    # pulls in ``fastapi.middleware.wsgi`` for its Dash panel, and starlette has
-    # deprecated that module.  Nothing here uses it and the fix is not ours.
-    "ignore:starlette.middleware.wsgi is deprecated",
-]
+filterwarnings = ["ignore:starlette.middleware.wsgi is deprecated"]
+pythonpath = ["tests"]
+testpaths = ["tests"]
 
 # ---------------------------------------------------------------- ruff ----
 [tool.ruff]
 line-length = 100
 target-version = "py314"
-src = ["src"]
-# Markdown is excluded on purpose: ``ruff format`` rewrites the Python inside
-# code fences, which collapses the column-aligned trailing comments the docs use
-# to annotate field tables.  The docs are prose, not a build target.
+src = ["."]
 extend-exclude = ["frontend", "runs", ".rancho", "*.md"]
 
 [tool.ruff.lint]
@@ -62,8 +54,10 @@ docstring-code-format = true
 
 # ------------------------------------------------------------------ ty ----
 [tool.ty.src]
-include = ["src", "tests"]
+include = ["rancho", "tests"]
 
 [tool.ty.rules]
-# CropForge exposes dynamic, dataclass-heavy state objects that resolve to Any.
 unresolved-attribute = "warn"
+
+[tool.uv.build-backend]
+module-root = ""

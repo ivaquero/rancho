@@ -12,7 +12,10 @@ cereal would be dishonest, so Rancho supplies its own plugins:
 * the harvested organ is a fresh fruit or leaf, which is why yield is converted
   from dry matter in :mod:`rancho.frames` instead of being read off the model.
 
-All three crops share one thermal-time model; only the profile differs.
+All three crops share one thermal-time model; only the profile differs — and
+that profile is no longer written here: it is read from the TOML templates in
+:mod:`rancho.crops`, which also feed the water balance and the product
+description, so one edit still describes one crop.
 """
 
 from __future__ import annotations
@@ -21,6 +24,8 @@ import math
 from dataclasses import dataclass
 
 from cropforge._plugins_base import CropPlugin, register_crop
+
+from rancho.crops import TEMPLATES, CropTemplate
 
 #: How fast the canopy still expands in each stage (1.0 = full rate).  A
 #: staked tomato keeps laying down leaves while it is being picked, just slower
@@ -38,7 +43,12 @@ _GROWTH_RATE: dict[str, float] = {
 
 @dataclass(frozen=True, slots=True)
 class VegetableProfile:
-    """Everything that differs between one greenhouse vegetable and another."""
+    """Everything that differs between one greenhouse vegetable and another.
+
+    This is the flat, runtime view of :class:`rancho.crops.CropTemplate`: the
+    plugin reads one level deep, the template keeps the same numbers grouped by
+    what they describe.  Do not edit the constants below — edit the TOML.
+    """
 
     species: str
     #: Base temperature for thermal time (°C).
@@ -62,67 +72,25 @@ class VegetableProfile:
     max_height_cm: float
 
 
-TOMATO = VegetableProfile(
-    species="Solanum lycopersicum",
-    base_temp_c=10.0,
-    stages=(
-        ("germination", 0.0),
-        ("emergence", 55.0),
-        ("seedling", 110.0),
-        ("vegetative", 300.0),
-        ("flowering", 500.0),
-        ("fruit_set", 600.0),
-        ("fruiting", 700.0),
-        ("maturity", 1900.0),
-    ),
-    rue=1.55,
-    lai_slope=0.0045,
-    lai_max=3.4,
-    senescence_rate=0.012,
-    senescence_stages=("maturity",),
-    k_height=8.0,
-    max_height_cm=220.0,
-)
+def _profile(template: CropTemplate) -> VegetableProfile:
+    """Flatten one template into the runtime view the plugin reads."""
+    return VegetableProfile(
+        species=template.species,
+        base_temp_c=template.base_temp_c,
+        stages=tuple((stage.name, stage.gdd) for stage in template.stages),
+        rue=template.growth.rue,
+        lai_slope=template.growth.lai_slope,
+        lai_max=template.growth.lai_max,
+        senescence_rate=template.growth.senescence_rate,
+        senescence_stages=template.growth.senescence_stages,
+        k_height=template.structure.k_height,
+        max_height_cm=template.structure.max_height_cm,
+    )
 
-CUCUMBER = VegetableProfile(
-    species="Cucumis sativus",
-    base_temp_c=12.0,
-    stages=(
-        ("germination", 0.0),
-        ("emergence", 50.0),
-        ("seedling", 100.0),
-        ("vegetative", 220.0),
-        ("flowering", 330.0),
-        ("fruit_set", 380.0),
-        ("fruiting", 430.0),
-        ("maturity", 900.0),
-    ),
-    rue=1.45,
-    lai_slope=0.0070,
-    lai_max=3.8,
-    senescence_rate=0.015,
-    senescence_stages=("maturity",),
-    k_height=9.0,
-    max_height_cm=250.0,
-)
 
-LETTUCE = VegetableProfile(
-    species="Lactuca sativa",
-    base_temp_c=4.0,
-    stages=(
-        ("germination", 0.0),
-        ("seedling", 60.0),
-        ("vegetative", 180.0),
-        ("maturity", 520.0),
-    ),
-    rue=0.80,
-    lai_slope=0.0035,
-    lai_max=4.5,
-    senescence_rate=0.020,
-    senescence_stages=(),
-    k_height=3.2,
-    max_height_cm=30.0,
-)
+TOMATO = _profile(TEMPLATES["tomato"])
+CUCUMBER = _profile(TEMPLATES["cucumber"])
+LETTUCE = _profile(TEMPLATES["lettuce"])
 
 
 class GreenhouseVegetable(CropPlugin):

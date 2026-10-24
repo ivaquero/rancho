@@ -16,7 +16,8 @@ from typing import Any, Final
 import numpy as np
 import pandas as pd
 
-from rancho.scenario import CROP_PROFILES, STAGE_LABELS, STAGE_ORDER, ScenarioConfig
+from rancho.crops import STAGE_ORDER
+from rancho.scenario import CROP_PROFILES, STAGE_LABELS, ScenarioConfig
 
 
 @dataclass(frozen=True, slots=True)

@@ -41,12 +41,12 @@
 
 | 文件 | 改动 |
 | --- | --- |
-| `src/rancho/scenario.py` | 作物加 `tomato`/`cucumber`/`lettuce`，气候加 `tropical`，土壤加 `andisol`；新增 `protected`、`cover_transmission`、`slope_pct`、`latitude`/`longitude`；新增两个萨尔瓦多预设 |
-| `src/rancho/climate.py` | 气候参数改为 `ClimateProfile`；降雨概率按余弦做季节调制（这是热带两季的关键）；棚内降雨置零、辐射乘透过率、风速 0.2 m/s、湿度 +5 |
-| `src/rancho/vegetables.py` | 三个蔬菜插件：热时间物候（定植到采收）、吊蔓限高、结果期冠层继续更新 |
-| `src/rancho/agronomy.py` | 根区深度、Kc、允许消耗比例按作物取（`CROP_WATER`） |
-| `src/rancho/engine.py` | 插件注册表、坡度的实际取值、经纬度、棚内气象参数 |
-| `src/rancho/frames.py` | 产量改为「干物质 × 收获指数 ÷ 干物质率 × 商品率」，即鲜重可售产量 |
+| `rancho/scenario.py` | 作物加 `tomato`/`cucumber`/`lettuce`，气候加 `tropical`，土壤加 `andisol`；新增 `protected`、`cover_transmission`、`slope_pct`、`latitude`/`longitude`；新增两个萨尔瓦多预设 |
+| `rancho/climate.py` | 气候参数改为 `ClimateProfile`；降雨概率按余弦做季节调制（这是热带两季的关键）；棚内降雨置零、辐射乘透过率、风速 0.2 m/s、湿度 +5 |
+| `rancho/vegetables.py` | 三个蔬菜插件：热时间物候（定植到采收）、吊蔓限高、结果期冠层继续更新 |
+| `rancho/agronomy.py` | 根区深度、Kc、允许消耗比例按作物取（`CROP_WATER`） |
+| `rancho/engine.py` | 插件注册表、坡度的实际取值、经纬度、棚内气象参数 |
+| `rancho/frames.py` | 产量改为「干物质 × 收获指数 ÷ 干物质率 × 商品率」，即鲜重可售产量 |
 
 棚内小气候不是事后修正，而是直接写进逐日气象：CropForge 的 FAO-56 ET₀ 因此
 按棚内辐射与风速计算，结果才站得住。实测同一配置下，棚内 ET₀ 均值 1.98 mm/d，

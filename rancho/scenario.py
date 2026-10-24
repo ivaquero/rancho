@@ -13,6 +13,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from rancho.crops import TEMPLATES
+
 CropKind = Literal["wheat", "maize", "tomato", "cucumber", "lettuce"]
 SoilKind = Literal["loam", "clay", "sandy", "andisol"]
 ClimateKind = Literal["temperate", "continental", "semi-arid", "tropical"]
@@ -20,25 +22,8 @@ WeatherSource = Literal["synthetic", "open-meteo"]
 SoilPattern = Literal["uniform", "gradient", "patches"]
 TerrainKind = Literal["flat", "slope", "undulating"]
 
-#: Canonical phenological stage order shared by all crop plugins.  Only the
-#: stages a crop actually passes through appear in a run; the list is a superset
-#: so that cereals and greenhouse vegetables can share one axis.
-STAGE_ORDER: tuple[str, ...] = (
-    "germination",
-    "emergence",
-    "seedling",
-    "tillering",
-    "vegetative",
-    "stem_extension",
-    "tasseling",
-    "silking",
-    "anthesis",
-    "flowering",
-    "fruit_set",
-    "fruiting",
-    "grain_fill",
-    "maturity",
-)
+#: Stage order lives in :mod:`rancho.crops` with the templates it validates;
+#: :data:`STAGE_LABELS` stays here because it is a display concern.
 
 #: Display names for the stage axis (Chinese UI labels).
 STAGE_LABELS: dict[str, str] = {
@@ -76,13 +61,21 @@ class CropProfile:
 
 
 #: Crop → product description.  Kept next to the scenario because yield is a
-#: property of what is sold, not of the growth model.
+#: property of what is sold, not of the growth model.  The vegetables read their
+#: ``[product]`` table from :mod:`rancho.crops`; the cereals, which CropForge
+#: owns, keep their literals here.
 CROP_PROFILES: dict[str, CropProfile] = {
     "wheat": CropProfile("小麦", "Triticum aestivum"),
     "maize": CropProfile("玉米", "Zea mays"),
-    "tomato": CropProfile("番茄", "Solanum lycopersicum", 0.055, 0.92),
-    "cucumber": CropProfile("黄瓜", "Cucumis sativus", 0.045, 0.95),
-    "lettuce": CropProfile("生菜", "Lactuca sativa", 0.050, 0.90),
+    **{
+        key: CropProfile(
+            template.label,
+            template.species,
+            template.product.dry_matter_fraction,
+            template.product.marketable_fraction,
+        )
+        for key, template in TEMPLATES.items()
+    },
 }
 
 

@@ -1,0 +1,64 @@
+# 黄瓜 · 大棚吊蔓（Rancho 模板 v1）
+#
+# 更短的物候、更快张开的冠层、更浅的根区：黄瓜是三种作物里的量产者，
+# 也是争电时最先被挤掉的那个。字段含义见 docs/crops.md。
+
+id = "cucumber"
+label = "黄瓜"
+species = "Cucumis sativus"
+base_temp_c = 12.0                  # 黄瓜喜温，基温比番茄高 2 °C
+
+[[stages]]
+name = "germination"
+gdd = 0.0
+
+[[stages]]
+name = "emergence"
+gdd = 50.0
+
+[[stages]]
+name = "seedling"
+gdd = 100.0
+
+[[stages]]
+name = "vegetative"
+gdd = 220.0
+
+[[stages]]
+name = "flowering"
+gdd = 330.0
+
+[[stages]]
+name = "fruit_set"
+gdd = 380.0
+
+[[stages]]
+name = "fruiting"
+gdd = 430.0
+
+[[stages]]
+name = "maturity"
+gdd = 900.0                         # 全季 900 °C·d，约为番茄的一半
+
+[growth]
+rue = 1.45
+lai_slope = 0.0070                  # 冠层张得比番茄快
+lai_max = 3.8
+senescence_rate = 0.015
+senescence_stages = ["maturity"]
+
+[structure]
+k_height = 9.0
+max_height_cm = 250.0               # 吊蔓到 2.5 m
+
+[water]
+root_zone_mm = 350.0                # 根系比番茄浅
+kc_mid = 1.05
+depletion_fraction = 0.45
+k_extinction = 0.70
+n_concentration = 0.030
+splits = [0.03, 0.20, 0.40, 0.60]   # 四次追肥
+
+[product]
+dry_matter_fraction = 0.045
+marketable_fraction = 0.95

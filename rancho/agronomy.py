@@ -28,6 +28,7 @@ from typing import Any
 import numpy as np
 
 from rancho.climate import SoilField
+from rancho.crops import TEMPLATES, CropTemplate
 from rancho.scenario import ScenarioConfig
 
 
@@ -50,15 +51,28 @@ class CropWaterParams:
     splits: tuple[float, ...]
 
 
+def _water_from(template: CropTemplate) -> CropWaterParams:
+    """The root-zone block of a template, in the shape the balance reads."""
+    water = template.water
+    return CropWaterParams(
+        root_zone_mm=water.root_zone_mm,
+        kc_mid=water.kc_mid,
+        depletion_fraction=water.depletion_fraction,
+        k_extinction=water.k_extinction,
+        n_concentration=water.n_concentration,
+        splits=water.splits,
+    )
+
+
 #: Crop → water/nitrogen parameters.  Wheat and maize reproduce the values the
-#: existing presets were calibrated on; the vegetables use shallower buckets,
-#: a stricter depletion allowance and a denser canopy.
+#: existing presets were calibrated on and stay literals here: CropForge owns
+#: their plugins, so Rancho has no template for them.  The vegetables read their
+#: ``[water]`` table from :mod:`rancho.crops`, which keeps this table and the
+#: growth plugin from drifting apart.
 CROP_WATER: dict[str, CropWaterParams] = {
     "wheat": CropWaterParams(300.0, 1.05, 0.50, 0.45, 0.028, (0.02, 0.22, 0.40)),
     "maize": CropWaterParams(400.0, 1.15, 0.55, 0.55, 0.025, (0.02, 0.22, 0.40)),
-    "tomato": CropWaterParams(450.0, 1.15, 0.40, 0.65, 0.032, (0.03, 0.18, 0.34, 0.50, 0.66, 0.80)),
-    "cucumber": CropWaterParams(350.0, 1.05, 0.45, 0.70, 0.030, (0.03, 0.20, 0.40, 0.60)),
-    "lettuce": CropWaterParams(200.0, 1.00, 0.35, 0.70, 0.035, (0.05, 0.30, 0.55)),
+    **{key: _water_from(template) for key, template in TEMPLATES.items()},
 }
 
 #: Half-saturation constant of the Mitscherlich nitrogen response (kg/ha).
