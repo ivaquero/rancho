@@ -1,0 +1,20 @@
+# 玉米 · 露天谷物（Rancho 模板 v1）
+#
+# 同小麦：物候归 CropForge 自带插件，模板只管系数与产品。
+# 根区比小麦深、Kc 更高，允许消耗比例也更高。
+
+id = "maize"
+label = "玉米"
+species = "Zea mays"
+
+[water]
+root_zone_mm = 400.0
+kc_mid = 1.15
+depletion_fraction = 0.55
+k_extinction = 0.55
+n_concentration = 0.025
+splits = [0.02, 0.22, 0.40]
+
+[product]
+dry_matter_fraction = 1.0
+marketable_fraction = 1.0

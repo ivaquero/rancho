@@ -25,7 +25,7 @@ from dataclasses import dataclass
 
 from cropforge._plugins_base import CropPlugin, register_crop
 
-from rancho.crops import TEMPLATES, CropTemplate
+from rancho.crops import TEMPLATES, CropTemplate, CropTemplateError
 
 #: How fast the canopy still expands in each stage (1.0 = full rate).  A
 #: staked tomato keeps laying down leaves while it is being picked, just slower
@@ -74,17 +74,22 @@ class VegetableProfile:
 
 def _profile(template: CropTemplate) -> VegetableProfile:
     """Flatten one template into the runtime view the plugin reads."""
+    growth = template.growth
+    structure = template.structure
+    base_temp_c = template.base_temp_c
+    if growth is None or structure is None or base_temp_c is None:
+        raise CropTemplateError(f"{template.id}.toml 没有完整的物候段，无法构造生长插件")
     return VegetableProfile(
         species=template.species,
-        base_temp_c=template.base_temp_c,
+        base_temp_c=base_temp_c,
         stages=tuple((stage.name, stage.gdd) for stage in template.stages),
-        rue=template.growth.rue,
-        lai_slope=template.growth.lai_slope,
-        lai_max=template.growth.lai_max,
-        senescence_rate=template.growth.senescence_rate,
-        senescence_stages=template.growth.senescence_stages,
-        k_height=template.structure.k_height,
-        max_height_cm=template.structure.max_height_cm,
+        rue=growth.rue,
+        lai_slope=growth.lai_slope,
+        lai_max=growth.lai_max,
+        senescence_rate=growth.senescence_rate,
+        senescence_stages=growth.senescence_stages,
+        k_height=structure.k_height,
+        max_height_cm=structure.max_height_cm,
     )
 
 
@@ -172,25 +177,24 @@ class GreenhouseVegetable(CropPlugin):
         plant.height_cm = min(self.profile.max_height_cm, height)
 
 
-@register_crop("tomato")
-class Tomato(GreenhouseVegetable):
-    """Protected tomato, indeterminate, staked to 2.2 m."""
+def make_plugin(template: CropTemplate) -> type[GreenhouseVegetable]:
+    """Register one templated crop as a CropForge plugin.
 
-    species = TOMATO.species
-    profile = TOMATO
+    CropForge looks plugins up by name, so a class has to exist — but nothing in
+    it is crop-specific beyond the profile, so it is built here instead of being
+    written out once per crop.  Dropping a new ``<id>.toml`` in
+    :mod:`rancho.crops` therefore registers its plugin too.
+    """
+    namespace = {
+        "species": template.species,
+        "profile": _profile(template),
+        "__doc__": f"{template.label}（{template.species}），参数来自 {template.id}.toml。",
+    }
+    return register_crop(template.id)(type(template.id.title(), (GreenhouseVegetable,), namespace))
 
 
-@register_crop("cucumber")
-class Cucumber(GreenhouseVegetable):
-    """Protected cucumber on a vertical trellis."""
-
-    species = CUCUMBER.species
-    profile = CUCUMBER
-
-
-@register_crop("lettuce")
-class Lettuce(GreenhouseVegetable):
-    """Short-cycle leafy crop; the frame caps it at 30 cm."""
-
-    species = LETTUCE.species
-    profile = LETTUCE
+#: Crop key → plugin class, for every template that models its own phenology.
+#: Cereals are absent on purpose: CropForge ships those plugins.
+PLUGINS: dict[str, type[GreenhouseVegetable]] = {
+    key: make_plugin(template) for key, template in TEMPLATES.items() if template.has_phenology
+}

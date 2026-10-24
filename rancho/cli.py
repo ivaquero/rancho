@@ -400,13 +400,21 @@ def _crops() -> int:
 
     for key, crop in TEMPLATES.items():
         print(f"{key:<10} {crop.label}")
-        print(
-            f"{'':<10} 积温 {crop.season_gdd:>6.0f} °C·d · RUE {crop.growth.rue:.2f} · "
-            f"LAI≤ {crop.growth.lai_max:.1f} · 根区 {crop.water.root_zone_mm:.0f} mm · "
-            f"Kc {crop.water.kc_mid:.2f} · p {crop.water.depletion_fraction:.2f} · "
-            f"追肥 {len(crop.water.splits)} 次"
-        )
-        print(f"{'':<10} {crop.species} · {len(crop.stages)} 个物候阶段")
+        if crop.growth is not None:
+            print(
+                f"{'':<10} 积温 {crop.season_gdd:>6.0f} °C·d · RUE {crop.growth.rue:.2f} · "
+                f"LAI≤ {crop.growth.lai_max:.1f} · 根区 {crop.water.root_zone_mm:.0f} mm · "
+                f"Kc {crop.water.kc_mid:.2f} · p {crop.water.depletion_fraction:.2f} · "
+                f"追肥 {len(crop.water.splits)} 次"
+            )
+        else:
+            print(
+                f"{'':<10} 物候归 CropForge 自带插件 · 根区 {crop.water.root_zone_mm:.0f} mm · "
+                f"Kc {crop.water.kc_mid:.2f} · p {crop.water.depletion_fraction:.2f} · "
+                f"追肥 {len(crop.water.splits)} 次"
+            )
+        worth = f"{crop.market.price_yuan_kg:.1f} 元/kg" if crop.market else "不参与竞价"
+        print(f"{'':<10} {crop.species} · {worth}")
     print(f"\n模板目录 : {TEMPLATE_DIR}")
     return 0
 

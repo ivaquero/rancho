@@ -64,15 +64,11 @@ def _water_from(template: CropTemplate) -> CropWaterParams:
     )
 
 
-#: Crop → water/nitrogen parameters.  Wheat and maize reproduce the values the
-#: existing presets were calibrated on and stay literals here: CropForge owns
-#: their plugins, so Rancho has no template for them.  The vegetables read their
-#: ``[water]`` table from :mod:`rancho.crops`, which keeps this table and the
-#: growth plugin from drifting apart.
+#: Crop → water/nitrogen parameters, every one of them from the template's
+#: ``[water]`` table.  Keeping them next to the growth plugin is the point: the
+#: two used to live in different files and drifted apart.
 CROP_WATER: dict[str, CropWaterParams] = {
-    "wheat": CropWaterParams(300.0, 1.05, 0.50, 0.45, 0.028, (0.02, 0.22, 0.40)),
-    "maize": CropWaterParams(400.0, 1.15, 0.55, 0.55, 0.025, (0.02, 0.22, 0.40)),
-    **{key: _water_from(template) for key, template in TEMPLATES.items()},
+    key: _water_from(template) for key, template in TEMPLATES.items()
 }
 
 #: Half-saturation constant of the Mitscherlich nitrogen response (kg/ha).

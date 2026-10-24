@@ -1,0 +1,22 @@
+# 小麦 · 露天谷物（Rancho 模板 v1）
+#
+# 没有 [[stages]] / [growth] / [structure]：物候归 CropForge 自带的小麦插件，
+# Rancho 不重写它。模板只承担 Rancho 这一侧的系数与产品折算——以前这些数字
+# 写在 agronomy.CROP_WATER 与 scenario.CROP_PROFILES 里。
+# 也没有 [market]：谷物不进大棚竞价。
+
+id = "wheat"
+label = "小麦"
+species = "Triticum aestivum"
+
+[water]
+root_zone_mm = 300.0                # 30 cm 有效根区
+kc_mid = 1.05                       # FAO-56 生育中期
+depletion_fraction = 0.50           # 谷物耐旱，允许消耗一半
+k_extinction = 0.45
+n_concentration = 0.028
+splits = [0.02, 0.22, 0.40]         # 三次追肥
+
+[product]
+dry_matter_fraction = 1.0           # 籽粒按收获水分计，收获指数单独折算
+marketable_fraction = 1.0

@@ -29,17 +29,16 @@ from rancho.agronomy import AgronomyModel
 from rancho.climate import build_soil_field, write_soil_csv
 from rancho.frames import build_bundle
 from rancho.scenario import ScenarioConfig
-from rancho.vegetables import Cucumber, Lettuce, Tomato
+from rancho.vegetables import PLUGINS as VEGETABLE_PLUGINS
 from rancho.weather import resolve_weather
 
-#: Crop name → crop plugin class.  Vegetables are Rancho's own plugins; the
-#: cereals come bundled with CropForge.
+#: Crop name → crop plugin class.  The vegetables are generated from the
+#: templates in :mod:`rancho.crops`; the cereals come bundled with CropForge,
+#: which is why they have no template of their own.
 PLUGINS: dict[str, type] = {
     "wheat": StandardWheat,
     "maize": StandardMaize,
-    "tomato": Tomato,
-    "cucumber": Cucumber,
-    "lettuce": Lettuce,
+    **VEGETABLE_PLUGINS,
 }
 
 _RUN_LOCK = threading.Lock()

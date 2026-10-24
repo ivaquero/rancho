@@ -1,10 +1,11 @@
 """Parameter objects for the greenhouse economics probe.
 
 Every number that a grower could argue about lives here, in one place, with its
-unit in the field name.  The crop water parameters are *not* duplicated: they
-come from :data:`rancho.agronomy.CROP_WATER`, and the product description from
-:data:`rancho.scenario.CROP_PROFILES`, so the economic layer and the physics
-layer cannot drift apart on Kc, root depth or dry-matter fraction.
+unit in the field name.  Nothing about a crop is duplicated here: the water
+coefficients come from :data:`rancho.agronomy.CROP_WATER`, the product
+description from :data:`rancho.scenario.CROP_PROFILES`, and the price, light
+response and temperature tolerance from the crop template's ``[market]`` table.
+What is left in this module is the bed — its area and its starting soil.
 """
 
 from __future__ import annotations
@@ -13,6 +14,7 @@ from dataclasses import dataclass
 from typing import Final
 
 from rancho.agronomy import CROP_WATER
+from rancho.crops import TEMPLATES
 from rancho.scenario import CROP_PROFILES
 
 #: Hours in a model day.  The probe steps hourly because a flat daily tariff
@@ -204,46 +206,43 @@ class GreenhouseSpec:
 def _crop(
     key: str,
     *,
-    label: str,
     area_m2: float,
-    price_yuan_kg: float,
-    dli_target: float,
-    light_w_m2: float,
-    setpoint_day_c: float,
-    setpoint_night_c: float,
-    t_opt_c: float,
-    t_min_c: float,
-    t_max_c: float,
-    t_critical_c: float,
-    damage_per_hour_k: float,
-    growth_max_g_m2_day: float,
-    dli_half: float,
-    fert_g_m2_day: float,
     initial_n_kg_ha: float,
     initial_moisture_pct: float,
     field_capacity_pct: float,
     wilting_point_pct: float,
-    transplant_lai: float = 0.45,
 ) -> CropSpec:
-    """Build a crop spec, taking its water coefficients from the physics layer."""
+    """Build a crop spec: its market traits from the template, its bed from here.
+
+    Price, light response and temperature tolerance are properties of the crop,
+    so they now live in the template's ``[market]`` table.  ``area_m2`` and the
+    soil state are properties of one bed on one site and stay here — three crops
+    sharing a house do not share a bed, but they do share a soil profile only by
+    coincidence.
+    """
+    template = TEMPLATES[key]
+    market = template.market
+    growth = template.growth
+    if market is None or growth is None:
+        raise ValueError(f"{key} 模板缺少 [market] 或 [growth] 段，经济层无法给它定价")
     water = CROP_WATER[key]
     return CropSpec(
         key=key,
-        label=label,
+        label=template.label,
         area_m2=area_m2,
-        price_yuan_kg=price_yuan_kg,
-        dli_target=dli_target,
-        light_w_m2=light_w_m2,
-        setpoint_day_c=setpoint_day_c,
-        setpoint_night_c=setpoint_night_c,
-        t_opt_c=t_opt_c,
-        t_min_c=t_min_c,
-        t_max_c=t_max_c,
-        t_critical_c=t_critical_c,
-        damage_per_hour_k=damage_per_hour_k,
-        growth_max_g_m2_day=growth_max_g_m2_day,
-        dli_half=dli_half,
-        fert_g_m2_day=fert_g_m2_day,
+        price_yuan_kg=market.price_yuan_kg,
+        dli_target=market.dli_target,
+        light_w_m2=market.light_w_m2,
+        setpoint_day_c=market.setpoint_day_c,
+        setpoint_night_c=market.setpoint_night_c,
+        t_opt_c=market.t_opt_c,
+        t_min_c=market.t_min_c,
+        t_max_c=market.t_max_c,
+        t_critical_c=market.t_critical_c,
+        damage_per_hour_k=market.damage_per_hour_k,
+        growth_max_g_m2_day=market.growth_max_g_m2_day,
+        dli_half=market.dli_half,
+        fert_g_m2_day=market.fert_g_m2_day,
         root_zone_mm=water.root_zone_mm,
         kc_mid=water.kc_mid,
         depletion_fraction=water.depletion_fraction,
@@ -252,7 +251,7 @@ def _crop(
         initial_moisture_pct=initial_moisture_pct,
         field_capacity_pct=field_capacity_pct,
         wilting_point_pct=wilting_point_pct,
-        transplant_lai=transplant_lai,
+        transplant_lai=growth.transplant_lai,
     )
 
 
@@ -263,72 +262,27 @@ def _crop(
 CROPS: Final[dict[str, CropSpec]] = {
     "tomato": _crop(
         "tomato",
-        label="番茄",
         area_m2=240.0,
-        price_yuan_kg=14.0,
-        dli_target=20.0,
-        light_w_m2=130.0,
-        setpoint_day_c=26.0,
-        setpoint_night_c=18.0,
-        t_opt_c=22.0,
-        t_min_c=9.0,
-        t_max_c=32.0,
-        t_critical_c=34.0,
-        damage_per_hour_k=0.020,
-        growth_max_g_m2_day=85.0,
-        dli_half=11.0,
-        fert_g_m2_day=0.35,
         initial_n_kg_ha=28.0,
         initial_moisture_pct=22.0,
         field_capacity_pct=34.0,
         wilting_point_pct=16.0,
-        transplant_lai=0.45,
     ),
     "cucumber": _crop(
         "cucumber",
-        label="黄瓜",
         area_m2=200.0,
-        price_yuan_kg=9.0,
-        dli_target=18.0,
-        light_w_m2=110.0,
-        setpoint_day_c=26.0,
-        setpoint_night_c=17.0,
-        t_opt_c=24.0,
-        t_min_c=12.0,
-        t_max_c=34.0,
-        t_critical_c=35.0,
-        damage_per_hour_k=0.018,
-        growth_max_g_m2_day=100.0,
-        dli_half=10.0,
-        fert_g_m2_day=0.32,
         initial_n_kg_ha=25.0,
         initial_moisture_pct=21.0,
         field_capacity_pct=33.0,
         wilting_point_pct=15.0,
-        transplant_lai=0.55,
     ),
     "lettuce": _crop(
         "lettuce",
-        label="生菜",
         area_m2=160.0,
-        price_yuan_kg=7.0,
-        dli_target=12.0,
-        light_w_m2=90.0,
-        setpoint_day_c=22.0,
-        setpoint_night_c=16.0,
-        t_opt_c=18.0,
-        t_min_c=4.0,
-        t_max_c=27.0,
-        t_critical_c=29.0,
-        damage_per_hour_k=0.025,
-        growth_max_g_m2_day=120.0,
-        dli_half=8.0,
-        fert_g_m2_day=0.25,
         initial_n_kg_ha=30.0,
         initial_moisture_pct=20.0,
         field_capacity_pct=32.0,
         wilting_point_pct=14.0,
-        transplant_lai=0.75,
     ),
 }
 

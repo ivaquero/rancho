@@ -30,6 +30,7 @@ lai_slope = 0.0035
 lai_max = 4.5                       # 叶球贴地铺开，LAI 反而最高
 senescence_rate = 0.020
 senescence_stages = []              # 边生长边采收，没有衰老段
+transplant_lai = 0.75
 
 [structure]
 k_height = 3.2                      # 株型矮，√g 系数小
@@ -46,3 +47,18 @@ splits = [0.05, 0.30, 0.55]         # 三次追肥
 [product]
 dry_matter_fraction = 0.050
 marketable_fraction = 0.90
+
+[market]
+price_yuan_kg = 7.0
+dli_target = 12.0
+light_w_m2 = 90.0
+setpoint_day_c = 22.0
+setpoint_night_c = 16.0
+t_opt_c = 18.0
+t_min_c = 4.0
+t_max_c = 27.0
+t_critical_c = 29.0
+damage_per_hour_k = 0.025           # 最怕热，损伤系数最高
+growth_max_g_m2_day = 120.0
+dli_half = 8.0
+fert_g_m2_day = 0.25

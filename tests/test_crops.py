@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import textwrap
 from pathlib import Path
-from typing import get_args
 
 import pytest
 
@@ -19,16 +18,20 @@ from rancho.agronomy import CROP_WATER
 from rancho.crops import (
     STAGE_ORDER,
     TEMPLATES,
-    CropTemplate,
     CropTemplateError,
     load_template,
     load_templates,
 )
-from rancho.scenario import CROP_PROFILES, STAGE_LABELS, CropKind
+from rancho.econ.spec import CROPS
+from rancho.engine import PLUGINS
+from rancho.scenario import CROP_KEYS, CROP_PROFILES, STAGE_LABELS
 from rancho.vegetables import CUCUMBER, LETTUCE, TOMATO, VegetableProfile
+from rancho.vegetables import PLUGINS as VEGETABLE_PLUGINS
 
 #: The values the templates must reproduce — copied from the code they replaced
-#: (``vegetables.py``, ``agronomy.CROP_WATER``, ``scenario.CROP_PROFILES``).
+#: (``vegetables.py``, ``agronomy.CROP_WATER``, ``scenario.CROP_PROFILES``,
+#: ``econ/spec.py``).  ``growth`` / ``structure`` / ``market`` are ``None`` for a
+#: crop whose phenology CropForge owns.
 ANCHORS: dict[str, dict[str, object]] = {
     "tomato": {
         "label": "番茄",
@@ -44,10 +47,11 @@ ANCHORS: dict[str, dict[str, object]] = {
             ("fruiting", 700.0),
             ("maturity", 1900.0),
         ),
-        "growth": (1.55, 0.0045, 3.4, 0.012, ("maturity",)),
+        "growth": (1.55, 0.0045, 3.4, 0.012, ("maturity",), 0.45),
         "structure": (8.0, 220.0),
         "water": (450.0, 1.15, 0.40, 0.65, 0.032, (0.03, 0.18, 0.34, 0.50, 0.66, 0.80)),
         "product": (0.055, 0.92),
+        "market": (14.0, 20.0, 130.0, 26.0, 18.0, 22.0, 9.0, 32.0, 34.0, 0.020, 85.0, 11.0, 0.35),
     },
     "cucumber": {
         "label": "黄瓜",
@@ -63,10 +67,11 @@ ANCHORS: dict[str, dict[str, object]] = {
             ("fruiting", 430.0),
             ("maturity", 900.0),
         ),
-        "growth": (1.45, 0.0070, 3.8, 0.015, ("maturity",)),
+        "growth": (1.45, 0.0070, 3.8, 0.015, ("maturity",), 0.55),
         "structure": (9.0, 250.0),
         "water": (350.0, 1.05, 0.45, 0.70, 0.030, (0.03, 0.20, 0.40, 0.60)),
         "product": (0.045, 0.95),
+        "market": (9.0, 18.0, 110.0, 26.0, 17.0, 24.0, 12.0, 34.0, 35.0, 0.018, 100.0, 10.0, 0.32),
     },
     "lettuce": {
         "label": "生菜",
@@ -78,10 +83,33 @@ ANCHORS: dict[str, dict[str, object]] = {
             ("vegetative", 180.0),
             ("maturity", 520.0),
         ),
-        "growth": (0.80, 0.0035, 4.5, 0.020, ()),
+        "growth": (0.80, 0.0035, 4.5, 0.020, (), 0.75),
         "structure": (3.2, 30.0),
         "water": (200.0, 1.00, 0.35, 0.70, 0.035, (0.05, 0.30, 0.55)),
         "product": (0.050, 0.90),
+        "market": (7.0, 12.0, 90.0, 22.0, 16.0, 18.0, 4.0, 27.0, 29.0, 0.025, 120.0, 8.0, 0.25),
+    },
+    "wheat": {
+        "label": "小麦",
+        "species": "Triticum aestivum",
+        "base_temp_c": None,
+        "stages": (),
+        "growth": None,
+        "structure": None,
+        "water": (300.0, 1.05, 0.50, 0.45, 0.028, (0.02, 0.22, 0.40)),
+        "product": (1.0, 1.0),
+        "market": None,
+    },
+    "maize": {
+        "label": "玉米",
+        "species": "Zea mays",
+        "base_temp_c": None,
+        "stages": (),
+        "growth": None,
+        "structure": None,
+        "water": (400.0, 1.15, 0.55, 0.55, 0.025, (0.02, 0.22, 0.40)),
+        "product": (1.0, 1.0),
+        "market": None,
     },
 }
 
@@ -123,6 +151,24 @@ dry_matter_fraction = 0.060
 marketable_fraction = 0.90
 """
 
+#: The economic block, appended to ``BASE`` when a test needs a priced crop.
+MARKET = """
+[market]
+price_yuan_kg = 12.0
+dli_target = 14.0
+light_w_m2 = 100.0
+setpoint_day_c = 24.0
+setpoint_night_c = 17.0
+t_opt_c = 21.0
+t_min_c = 8.0
+t_max_c = 30.0
+t_critical_c = 33.0
+damage_per_hour_k = 0.020
+growth_max_g_m2_day = 60.0
+dli_half = 9.0
+fert_g_m2_day = 0.30
+"""
+
 
 def _write(tmp_path: Path, text: str, name: str = "basil.toml") -> Path:
     path = tmp_path / name
@@ -139,16 +185,85 @@ def _rejects(path: Path, fragment: str) -> str:
     return message
 
 
+def _growth(template) -> tuple | None:
+    if template.growth is None:
+        return None
+    growth = template.growth
+    return (
+        growth.rue,
+        growth.lai_slope,
+        growth.lai_max,
+        growth.senescence_rate,
+        growth.senescence_stages,
+        growth.transplant_lai,
+    )
+
+
+def _structure(template) -> tuple | None:
+    if template.structure is None:
+        return None
+    return (template.structure.k_height, template.structure.max_height_cm)
+
+
+def _market(template) -> tuple | None:
+    if template.market is None:
+        return None
+    market = template.market
+    return (
+        market.price_yuan_kg,
+        market.dli_target,
+        market.light_w_m2,
+        market.setpoint_day_c,
+        market.setpoint_night_c,
+        market.t_opt_c,
+        market.t_min_c,
+        market.t_max_c,
+        market.t_critical_c,
+        market.damage_per_hour_k,
+        market.growth_max_g_m2_day,
+        market.dli_half,
+        market.fert_g_m2_day,
+    )
+
+
+def _water(template) -> tuple:
+    water = template.water
+    return (
+        water.root_zone_mm,
+        water.kc_mid,
+        water.depletion_fraction,
+        water.k_extinction,
+        water.n_concentration,
+        water.splits,
+    )
+
+
 # ------------------------------------------------------------- the bundled set
 
 
-def test_the_bundled_set_is_exactly_the_three_vegetables() -> None:
-    assert set(TEMPLATES) == set(ANCHORS) == {"tomato", "cucumber", "lettuce"}
+def test_the_bundled_set_is_three_vegetables_and_two_cereals() -> None:
+    assert set(TEMPLATES) == set(ANCHORS)
+    assert {key for key, crop in TEMPLATES.items() if crop.has_phenology} == {
+        "tomato",
+        "cucumber",
+        "lettuce",
+    }
+    assert {key for key, crop in TEMPLATES.items() if not crop.has_phenology} == {
+        "wheat",
+        "maize",
+    }
 
 
 def test_every_templated_crop_is_selectable_in_a_scenario() -> None:
     """A template the config cannot name would be invisible to the engine."""
-    assert set(TEMPLATES) <= set(get_args(CropKind))
+    assert set(TEMPLATES) <= CROP_KEYS
+
+
+def test_an_unknown_crop_is_refused_by_the_scenario() -> None:
+    from rancho.scenario import ScenarioConfig
+
+    with pytest.raises(Exception, match="未知作物"):
+        ScenarioConfig(crop="basil")
 
 
 @pytest.mark.parametrize("key", sorted(ANCHORS))
@@ -159,26 +274,14 @@ def test_the_template_reproduces_the_literal_it_replaced(key: str) -> None:
     assert template.species == anchor["species"]
     assert template.base_temp_c == anchor["base_temp_c"]
     assert tuple((stage.name, stage.gdd) for stage in template.stages) == anchor["stages"]
-    assert (
-        template.growth.rue,
-        template.growth.lai_slope,
-        template.growth.lai_max,
-        template.growth.senescence_rate,
-        template.growth.senescence_stages,
-    ) == anchor["growth"]
-    assert (template.structure.k_height, template.structure.max_height_cm) == anchor["structure"]
-    assert (
-        template.water.root_zone_mm,
-        template.water.kc_mid,
-        template.water.depletion_fraction,
-        template.water.k_extinction,
-        template.water.n_concentration,
-        template.water.splits,
-    ) == anchor["water"]
+    assert _growth(template) == anchor["growth"]
+    assert _structure(template) == anchor["structure"]
+    assert _water(template) == anchor["water"]
     assert (
         template.product.dry_matter_fraction,
         template.product.marketable_fraction,
     ) == anchor["product"]
+    assert _market(template) == anchor["market"]
 
 
 @pytest.mark.parametrize(
@@ -187,17 +290,21 @@ def test_the_template_reproduces_the_literal_it_replaced(key: str) -> None:
 )
 def test_the_growth_plugin_reads_the_template(key: str, profile: VegetableProfile) -> None:
     template = TEMPLATES[key]
+    growth = template.growth
+    structure = template.structure
+    base_temp_c = template.base_temp_c
+    assert growth is not None and structure is not None and base_temp_c is not None
     assert profile == VegetableProfile(
         species=template.species,
-        base_temp_c=template.base_temp_c,
+        base_temp_c=base_temp_c,
         stages=tuple((stage.name, stage.gdd) for stage in template.stages),
-        rue=template.growth.rue,
-        lai_slope=template.growth.lai_slope,
-        lai_max=template.growth.lai_max,
-        senescence_rate=template.growth.senescence_rate,
-        senescence_stages=template.growth.senescence_stages,
-        k_height=template.structure.k_height,
-        max_height_cm=template.structure.max_height_cm,
+        rue=growth.rue,
+        lai_slope=growth.lai_slope,
+        lai_max=growth.lai_max,
+        senescence_rate=growth.senescence_rate,
+        senescence_stages=growth.senescence_stages,
+        k_height=structure.k_height,
+        max_height_cm=structure.max_height_cm,
     )
 
 
@@ -205,22 +312,66 @@ def test_the_growth_plugin_reads_the_template(key: str, profile: VegetableProfil
 def test_the_water_and_product_tables_read_the_same_file(key: str) -> None:
     template = TEMPLATES[key]
     water = CROP_WATER[key]
+    flat = (
+        water.root_zone_mm,
+        water.kc_mid,
+        water.depletion_fraction,
+        water.k_extinction,
+        water.n_concentration,
+        water.splits,
+    )
+    assert flat == _water(template)
     product = CROP_PROFILES[key]
-    assert water.root_zone_mm == template.water.root_zone_mm
-    assert water.kc_mid == template.water.kc_mid
-    assert water.splits == template.water.splits
     assert product.label == template.label
     assert product.species == template.species
     assert product.dry_matter_fraction == template.product.dry_matter_fraction
     assert product.marketable_fraction == template.product.marketable_fraction
 
 
-def test_the_cereals_are_still_not_templated() -> None:
-    """CropForge owns the cereal plugins; their numbers stay in Rancho's tables."""
-    assert set(CROP_WATER) == {"wheat", "maize", *TEMPLATES}
-    assert CROP_WATER["wheat"].root_zone_mm == 300.0
-    assert CROP_WATER["maize"].kc_mid == 1.15
-    assert CROP_PROFILES["wheat"].label == "小麦"
+def test_the_cereals_keep_only_the_coefficients_rancho_owns() -> None:
+    """No phenology, no market: CropForge grows them, nobody auctions them."""
+    assert set(CROP_WATER) == set(TEMPLATES)
+    for key in ("wheat", "maize"):
+        assert not TEMPLATES[key].has_phenology
+        assert TEMPLATES[key].market is None
+        assert key not in VEGETABLE_PLUGINS
+
+
+def test_every_crop_has_a_plugin_somewhere() -> None:
+    """A template with no plugin to run it would fail halfway through a run."""
+    assert set(TEMPLATES) <= set(PLUGINS)
+    assert set(VEGETABLE_PLUGINS) == {"tomato", "cucumber", "lettuce"}
+
+
+def test_the_economic_layer_prices_crops_from_their_market_block() -> None:
+    for key, spec in CROPS.items():
+        template = TEMPLATES[key]
+        market = template.market
+        growth = template.growth
+        assert market is not None and growth is not None
+        assert spec.label == template.label
+        assert spec.price_yuan_kg == market.price_yuan_kg
+        assert spec.t_opt_c == market.t_opt_c
+        assert spec.t_critical_c == market.t_critical_c
+        assert spec.growth_max_g_m2_day == market.growth_max_g_m2_day
+        assert spec.dli_half == market.dli_half
+        assert spec.fert_g_m2_day == market.fert_g_m2_day
+        assert spec.transplant_lai == growth.transplant_lai
+
+
+def test_a_crop_without_a_market_block_cannot_be_priced() -> None:
+    """The error has to name the crop, not surface as a bare ``None`` later."""
+    from rancho.econ.spec import _crop
+
+    with pytest.raises(ValueError, match=r"wheat 模板缺少 \[market\]"):
+        _crop(
+            "wheat",
+            area_m2=100.0,
+            initial_n_kg_ha=20.0,
+            initial_moisture_pct=20.0,
+            field_capacity_pct=32.0,
+            wilting_point_pct=14.0,
+        )
 
 
 def test_every_stage_in_the_vocabulary_has_a_label() -> None:
@@ -233,16 +384,27 @@ def test_every_stage_in_the_vocabulary_has_a_label() -> None:
 
 def test_a_minimal_template_loads(tmp_path: Path) -> None:
     template = load_template(_write(tmp_path, BASE))
+    growth = template.growth
+    assert growth is not None
     assert template.season_gdd == 100.0
-    assert template.growth.senescence_stages == ()
+    assert growth.senescence_stages == ()
     assert template.water.splits == (0.10, 0.50)
+    assert template.market is None
+
+
+def test_a_template_may_carry_a_market_block(tmp_path: Path) -> None:
+    template = load_template(_write(tmp_path, f"{BASE}{MARKET}"))
+    assert template.market is not None
+    assert template.market.price_yuan_kg == 12.0
 
 
 def test_a_hand_written_integer_is_accepted_as_a_float(tmp_path: Path) -> None:
     """Manual entry will produce ``rue = 2`` sooner or later; that is fine."""
     template = load_template(_write(tmp_path, BASE.replace("rue = 1.0", "rue = 2")))
-    assert template.growth.rue == 2.0
-    assert isinstance(template.growth.rue, float)
+    growth = template.growth
+    assert growth is not None
+    assert growth.rue == 2.0
+    assert isinstance(growth.rue, float)
 
 
 def test_a_directory_of_templates_is_keyed_by_file_stem(tmp_path: Path) -> None:
@@ -289,6 +451,15 @@ def test_a_senescence_stage_must_be_one_of_the_stages(tmp_path: Path) -> None:
     _rejects(path, "senescence_stages 引用了未定义的阶段")
 
 
+def test_a_partial_phenology_block_is_refused(tmp_path: Path) -> None:
+    """[growth] without [structure] leaves the canopy with no height to cap."""
+    text = textwrap.dedent(BASE)
+    stripped = text[: text.index("[structure]")] + text[text.index("[water]") :]
+    path = _write(tmp_path, stripped)
+    assert "[structure]" not in path.read_text(encoding="utf-8")
+    _rejects(path, "物候参数必须整组给出")
+
+
 def test_fertiliser_splits_must_advance_through_the_season(tmp_path: Path) -> None:
     path = _write(tmp_path, BASE.replace("splits = [0.10, 0.50]", "splits = [0.50, 0.10]"))
     _rejects(path, "splits 必须严格递增")
@@ -297,6 +468,16 @@ def test_fertiliser_splits_must_advance_through_the_season(tmp_path: Path) -> No
 def test_a_split_outside_the_season_is_refused(tmp_path: Path) -> None:
     path = _write(tmp_path, BASE.replace("splits = [0.10, 0.50]", "splits = [0.0, 0.50]"))
     _rejects(path, "splits 必须落在 (0, 1]")
+
+
+def test_the_temperature_limits_must_be_ordered(tmp_path: Path) -> None:
+    path = _write(tmp_path, f"{BASE}{MARKET}".replace("t_opt_c = 21.0", "t_opt_c = 31.0"))
+    _rejects(path, "t_min < t_opt < t_max")
+
+
+def test_a_night_setpoint_above_the_day_one_is_refused(tmp_path: Path) -> None:
+    text = f"{BASE}{MARKET}".replace("setpoint_night_c = 17.0", "setpoint_night_c = 27.0")
+    _rejects(_write(tmp_path, text), "夜间设定点")
 
 
 def test_an_unknown_field_is_refused_rather_than_ignored(tmp_path: Path) -> None:
@@ -330,8 +511,6 @@ def test_a_template_without_stages_is_refused(tmp_path: Path) -> None:
     _rejects(path, "stages")
 
 
-def test_the_template_is_immutable_where_the_engine_reads_it() -> None:
-    """The plugin holds a frozen view; mutating a template must not be possible."""
-    with pytest.raises(Exception, match="frozen"):
-        TEMPLATES["tomato"].growth.rue = 9.0  # ty: ignore[invalid-assignment]
-    assert isinstance(TEMPLATES["tomato"], CropTemplate)
+def test_loading_the_bundled_directory_twice_gives_the_same_crops() -> None:
+    """The loader keeps no hidden state, so re-reading a hand edit is enough."""
+    assert load_templates() == TEMPLATES

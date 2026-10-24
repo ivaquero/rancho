@@ -46,6 +46,7 @@ lai_slope = 0.0070                  # 冠层张得比番茄快
 lai_max = 3.8
 senescence_rate = 0.015
 senescence_stages = ["maturity"]
+transplant_lai = 0.55
 
 [structure]
 k_height = 9.0
@@ -62,3 +63,18 @@ splits = [0.03, 0.20, 0.40, 0.60]   # 四次追肥
 [product]
 dry_matter_fraction = 0.045
 marketable_fraction = 0.95
+
+[market]
+price_yuan_kg = 9.0
+dli_target = 18.0
+light_w_m2 = 110.0
+setpoint_day_c = 26.0
+setpoint_night_c = 17.0
+t_opt_c = 24.0
+t_min_c = 12.0
+t_max_c = 34.0
+t_critical_c = 35.0
+damage_per_hour_k = 0.018
+growth_max_g_m2_day = 100.0
+dli_half = 10.0
+fert_g_m2_day = 0.32

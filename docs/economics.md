@@ -169,16 +169,21 @@ CropForge · 物理层（逐日）                Mesa · 经济层（逐小时�
 
 ## 参数从哪来
 
-价格与容量集中在 `spec.py` 的四个 dataclass 里，单位写在字段名上。作物水肥参数**不复制**：
+价格与容量集中在 `spec.py` 的四个 dataclass 里，单位写在字段名上。作物本身的参数**不复制**：
 
 | 参数 | 来源 |
 | --- | --- |
-| `root_zone_mm` / `kc_mid` / `depletion_fraction` / `n_concentration` | `agronomy.CROP_WATER` |
-| `profile_label` / `dry_matter_fraction` | `scenario.CROP_PROFILES` |
-| 其余（面积、售价、DLI 目标、温控设定点、生长上限） | `econ/spec.py` |
+| `root_zone_mm` / `kc_mid` / `depletion_fraction` / `n_concentration` | 模板 `[water]` → `agronomy.CROP_WATER` |
+| `profile_label` / `dry_matter_fraction` | 模板 `[product]` → `scenario.CROP_PROFILES` |
+| 售价、DLI 目标、温控设定点、基数温度、生长上限、`transplant_lai` | 模板 `[market]` / `[growth]` |
+| 面积与土壤初值（面积、起始含氮量、田间持水量、凋萎点） | `econ/spec.py` |
+
+前三项都在 `rancho/crops/<作物>.toml` 里，改动一处两层的口径就一起变。最后一项不是作物属性——
+三畦菜共用一个棚，但各畦面积与起手土壤是场地参数，所以仍留在经济层。
 
 两层共用同一份水肥系数，因此不会出现「经济层按 450 mm 根区收费、物理层按 300 mm 耗水」
-这种漂移。这也是第二阶段能对接的前提。
+这种漂移。这也是第二阶段能对接的前提。没有 `[market]` 段的作物（谷物）无法定价，
+`econ.spec._crop` 会直接报出是哪个作物缺了哪一段。
 
 ## 结果（萨尔瓦多高原 · 28 天 · seed 42）
 

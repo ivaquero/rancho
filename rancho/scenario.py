@@ -11,11 +11,18 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from rancho.crops import TEMPLATES
 
-CropKind = Literal["wheat", "maize", "tomato", "cucumber", "lettuce"]
+#: Crops whose phenology CropForge ships on its own, so they have coefficients
+#: but no growth model of Rancho's own.
+BUILTIN_CROPS: frozenset[str] = frozenset({"wheat", "maize"})
+
+#: Every crop a scenario may name: the cereals plus every template on disk.  Not
+#: a ``Literal`` on purpose — dropping a new ``<id>.toml`` into :mod:`rancho.crops`
+#: must make it selectable without editing this file.
+CROP_KEYS: frozenset[str] = BUILTIN_CROPS | frozenset(TEMPLATES)
 SoilKind = Literal["loam", "clay", "sandy", "andisol"]
 ClimateKind = Literal["temperate", "continental", "semi-arid", "tropical"]
 WeatherSource = Literal["synthetic", "open-meteo"]
@@ -61,21 +68,16 @@ class CropProfile:
 
 
 #: Crop → product description.  Kept next to the scenario because yield is a
-#: property of what is sold, not of the growth model.  The vegetables read their
-#: ``[product]`` table from :mod:`rancho.crops`; the cereals, which CropForge
-#: owns, keep their literals here.
+#: property of what is sold, not of the growth model — but every entry now comes
+#: from the template's ``[product]`` table, cereals included.
 CROP_PROFILES: dict[str, CropProfile] = {
-    "wheat": CropProfile("小麦", "Triticum aestivum"),
-    "maize": CropProfile("玉米", "Zea mays"),
-    **{
-        key: CropProfile(
-            template.label,
-            template.species,
-            template.product.dry_matter_fraction,
-            template.product.marketable_fraction,
-        )
-        for key, template in TEMPLATES.items()
-    },
+    key: CropProfile(
+        template.label,
+        template.species,
+        template.product.dry_matter_fraction,
+        template.product.marketable_fraction,
+    )
+    for key, template in TEMPLATES.items()
 }
 
 
@@ -122,7 +124,7 @@ class ScenarioConfig(BaseModel):
     cols: int = Field(default=34, ge=4, le=96)
     days: int = Field(default=200, ge=10, le=240)
 
-    crop: CropKind = "wheat"
+    crop: str = Field(default="wheat", min_length=1, max_length=32)
     variety: str = Field(default="HD-2967", min_length=1, max_length=48)
     sowing_doy: int = Field(default=300, ge=1, le=366)
 
@@ -157,6 +159,13 @@ class ScenarioConfig(BaseModel):
 
     physics: PhysicsConfig = Field(default_factory=PhysicsConfig)
     weather: WeatherConfig = Field(default_factory=WeatherConfig)
+
+    @model_validator(mode="after")
+    def _check_crop(self) -> ScenarioConfig:
+        """Reject a crop no plugin and no template can serve."""
+        if self.crop not in CROP_KEYS:
+            raise ValueError(f"未知作物 {self.crop!r}，可选 {sorted(CROP_KEYS)}")
+        return self
 
     @property
     def plants_per_m2(self) -> float:

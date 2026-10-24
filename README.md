@@ -96,6 +96,20 @@ Rancho 在它之上补了三处，因为原实现会让整块地长出一样的�
 叶面积指数从 1.1 到 3.3 不等。场地判读、茬口与水肥依据见
 [`docs/salvador-greenhouse.md`](docs/salvador-greenhouse.md)。
 
+### 作物模板
+
+三种蔬菜与两种谷物的参数不再写进 Python：`rancho/crops/*.toml` 一份文件一个作物，生长物候、
+根区水氮、产品折率、经济层售价四处派生表都从它读。加一个作物就是加一个文件——
+`CROP_KEYS` 与作物插件都由模板算出，不必再改 `scenario` 或 `vegetables`。
+改数值保存后重启进程即生效，无需构建。
+
+```bash
+uv run rancho crops            # 打印当前生效的五份模板与路径
+```
+
+字段、单位、加载时的校验规则与「加一个作物」见 [`docs/crops.md`](docs/crops.md)。
+谷物的物候仍由 CropForge 自带插件负责，模板只承担 Rancho 这一侧的系数与产品折算。
+
 ### 气象：合成气候与实测数据
 
 `weather.source` 决定逐日气象从哪来，两条路写同一份 CSV、走同一个 FAO-56 链路：
@@ -231,14 +245,14 @@ flowchart LR
 ## 校验
 
 ```bash
-ruff format src tests && ruff check src tests && ty check
+ruff format . && ruff check . && ty check
 uv run pytest
 cd frontend && pnpm lint && pnpm fmt:check && pnpm typecheck && pnpm build
 ```
 
-`pytest` 是唯一的开发依赖（`uv add --group dev pytest`）；90 个用例约五秒，不联网
-（`test_econ_farm.py` 里每个用例都在真跑农场季运行）。
-覆盖范围见 [`docs/economics.md`](docs/economics.md#测试)。
+`pytest` 是唯一的开发依赖（`uv add --group dev pytest`）；134 个用例约五秒，不联网
+（`test_econ_farm.py` 里每个用例都在真跑农场季运行）。覆盖范围见
+[`docs/economics.md`](docs/economics.md#测试) 与 [`docs/crops.md`](docs/crops.md#加载时校验)。
 
 `ruff` / `ty` / `oxlint` / `oxfmt` 都不是项目依赖：它们由系统环境提供
 （`scoop install ruff ty oxlint oxfmt`），`uv sync` 与 `pnpm install` 都不会装，
@@ -253,11 +267,12 @@ rancho/
   weather.py    按经纬度取气象（Open-Meteo）、缓存、CSV 序列化
   agronomy.py   逐格水分、氮素、冠层
   vegetables.py 大棚蔬菜插件（番茄 / 黄瓜 / 生菜）
+  crops/        作物模板（TOML）+ 物候词汇 + 加载校验
   engine.py     组装 Farm，跑一次仿真
   frames.py     Parquet → 渲染用 bundle
   api.py        FastAPI
   store.py      内存 + gzip 两级缓存
-  cli.py        dev / serve / simulate / weather / presets / econ
+  cli.py        dev / serve / simulate / weather / presets / crops / econ
   econ/         经济层：参数、外生序列、产量函数、农场驱动、Mesa 竞价、三臂对照、报告
 frontend/src/
   scene.ts      Three.js：地形、冠层实例、雨、拾取
@@ -267,8 +282,10 @@ docs/
   salvador-greenhouse.md  设施改造的场地判读、茬口与水肥依据
   weather.md              实测气象的来源、字段映射、缓存与局限
   economics.md            经济层的竞价机制、三臂判据与局限
+  crops.md                作物模板的字段、校验与派生关系
 tests/
   support.py              不跑模型就造一份 arm 快照
+  test_crops.py           模板复现原值（精确相等）与每条校验规则
   test_econ_market.py     序贯配置与逾配记账
   test_econ_verdict.py    三臂判据的阈值边界
   test_econ_forcing.py    电价形状、日光窗口、水价区间

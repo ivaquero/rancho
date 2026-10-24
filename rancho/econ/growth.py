@@ -41,19 +41,11 @@ from cropforge.physics.radiation import calculate_intercepted_par
 from cropforge.state import EnvironmentState, PlantState
 
 from rancho.econ.spec import MOL_PAR_PER_MJ, CropSpec
-from rancho.vegetables import Cucumber, GreenhouseVegetable, Lettuce, Tomato
+from rancho.vegetables import PLUGINS, GreenhouseVegetable
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-#: Crop key → the plugin class CropForge would run for that species.  Using the
-#: plugin itself (not a re-implementation) is the point: phenology and canopy
-#: expansion are then the same code the physics layer runs.
-PLUGINS: dict[str, type[GreenhouseVegetable]] = {
-    "tomato": Tomato,
-    "cucumber": Cucumber,
-    "lettuce": Lettuce,
-}
 
 #: Plants per m² used when handing per-plant quantities to the plugin.  Every
 #: number this module returns is per m², and the plugin's per-plant biomass is
