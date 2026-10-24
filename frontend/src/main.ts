@@ -79,8 +79,8 @@ class App {
   private brush = "tomato";
   private baseCrop = "tomato";
   private canMix = true;
-  private rows = 18;
-  private cols = 40;
+  private rows = 5;
+  private cols = 12;
   private days = 130;
   private cropMap: string[] = [];
   private paletteSignature = "";
@@ -496,8 +496,9 @@ class App {
     // The field colours a cell by its index in *this* layout, not by its index
     // among all mixable crops — otherwise the chip for lettuce is yellow while
     // the bed it paints is brick red.  Crops not planted yet have no layout
-    // index, so they fall back to the mixable one and stay distinct.
+    // index, so they take the first colour that is still free.
     const planted = this.layoutKeys();
+    const used = new Set(planted.map((_, index) => index));
     mixable.forEach((crop, index) => {
       const button = document.createElement("button");
       button.type = "button";
@@ -505,8 +506,12 @@ class App {
       button.dataset.crop = crop.key;
       button.disabled = !allowed;
       button.setAttribute("aria-pressed", String(crop.key === this.brush));
-      const plantedIndex = planted.indexOf(crop.key);
-      const swatchIndex = plantedIndex >= 0 ? plantedIndex : index;
+      let swatchIndex = planted.indexOf(crop.key);
+      if (swatchIndex < 0) {
+        swatchIndex = index;
+        while (used.has(swatchIndex)) swatchIndex += 1;
+      }
+      used.add(swatchIndex);
       const swatch = document.createElement("i");
       swatch.className = "swatch";
       swatch.style.background = CROP_SWATCHES[swatchIndex % CROP_SWATCHES.length] as string;

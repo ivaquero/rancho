@@ -376,8 +376,13 @@ PRESETS: dict[str, dict[str, object]] = {
         ),
         "config": ScenarioConfig(
             name="Invernadero El Salvador",
-            rows=18,
-            cols=40,
+            # Small on purpose: this is the scenario the app opens on, and 32
+            # cells render and re-run instantly, so the first thing a visitor
+            # sees is the field rather than a progress cover.  Every number in
+            # the model is per cell or per hectare, so nothing here depends on
+            # the field being this size — the sliders go up to 72 × 96.
+            rows=5,
+            cols=12,
             days=130,
             crop="tomato",
             variety="Caiman F1",
