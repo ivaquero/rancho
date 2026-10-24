@@ -19,7 +19,7 @@ import pytest
 from cropforge.state import EnvironmentState, PlantState
 
 from rancho.agronomy import AgronomyModel
-from rancho.climate import build_soil_field
+from rancho.climate import SoilField, build_soil_field
 from rancho.mosaic import CropMosaic
 from rancho.scenario import MOSAIC_KEYS, ScenarioConfig, crop_grid, crop_indices, crop_keys
 from rancho.vegetables import PLUGINS as VEGETABLE_PLUGINS
@@ -171,7 +171,7 @@ def _mixed_config(**overrides: object) -> ScenarioConfig:
     return cfg.model_copy(update=dict(overrides)) if overrides else cfg
 
 
-def _soil_field(cfg: ScenarioConfig) -> object:
+def _soil_field(cfg: ScenarioConfig) -> SoilField:
     return build_soil_field(
         cfg.soil,
         rows=cfg.rows,
