@@ -28,7 +28,8 @@ from cropforge.plugins.wheat import StandardWheat
 from rancho.agronomy import AgronomyModel
 from rancho.climate import build_soil_field, write_soil_csv
 from rancho.frames import build_bundle
-from rancho.scenario import ScenarioConfig
+from rancho.mosaic import CropMosaic
+from rancho.scenario import MOSAIC_KEYS, ScenarioConfig, crop_grid
 from rancho.vegetables import PLUGINS as VEGETABLE_PLUGINS
 from rancho.weather import resolve_weather
 
@@ -169,7 +170,15 @@ def run_scenario(cfg: ScenarioConfig, work_root: Path) -> dict[str, Any]:
     agronomy = AgronomyModel(cfg, soil_field)
     # phase 0: water + nitrogen, so the crop plugin at phase 2 reads today's state.
     farm.step(phase=0)(agronomy.step)
-    field.use_plugin(PLUGINS[cfg.crop], phase=2)
+    # Every mixable field goes through CropMosaic, even a single-crop one: it
+    # hands each plant to the plugin planted in its own cell, and a uniform map
+    # is simply the case where that is always the same plugin.  A cereal has no
+    # per-plant form at all — CropForge's own plugin steps the whole field in one
+    # call — so it keeps the direct registration it always had.
+    if cfg.crop in MOSAIC_KEYS:
+        field.use_plugin(CropMosaic, phase=2, crop_map=crop_grid(cfg), rows=cfg.rows, cols=cfg.cols)
+    else:
+        field.use_plugin(PLUGINS[cfg.crop], phase=2)
     # phase 3: canopy, so the leaf area the row records matches the water supply.
     farm.step(phase=3)(agronomy.adjust_canopy)
 

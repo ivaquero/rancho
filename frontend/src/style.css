@@ -305,6 +305,81 @@ select:hover {
   color: var(--accent);
 }
 
+.palette {
+  margin-bottom: 10px;
+}
+
+.chip--crop {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.swatch {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35);
+}
+
+/* ------------------------------------------------------------- stacks --- */
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.stack__row {
+  display: flex;
+  gap: 6px;
+}
+
+.btn--tiny {
+  padding: 4px 8px;
+  font-size: 11px;
+  flex: 1;
+}
+
+.toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.toggle input {
+  accent-color: var(--accent);
+}
+
+.hint {
+  margin: 0;
+  font-size: 10.5px;
+  line-height: 1.5;
+  color: var(--dim);
+}
+
+.slider {
+  display: grid;
+  grid-template-columns: 34px 1fr 32px;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.slider output {
+  font-family: var(--mono);
+  font-size: 11px;
+  text-align: right;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------------------------------------------------------------- legend */
+
 /* ------------------------------------------------------------ metrics --- */
 
 .metrics {
@@ -339,6 +414,31 @@ select:hover {
   height: 10px;
   border-radius: 5px;
   border: 1px solid var(--line);
+}
+
+.legend__bar[hidden],
+.legend__crops[hidden] {
+  display: none;
+}
+
+.legend__crops {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  font-size: 10.5px;
+  color: var(--muted);
+}
+
+.legend__crop {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.legend__crop i {
+  width: 9px;
+  height: 9px;
+  border-radius: 3px;
 }
 
 .legend__scale {

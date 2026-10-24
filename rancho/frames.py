@@ -17,7 +17,14 @@ import numpy as np
 import pandas as pd
 
 from rancho.crops import STAGE_ORDER
-from rancho.scenario import CROP_PROFILES, STAGE_LABELS, ScenarioConfig
+from rancho.scenario import (
+    CROP_PROFILES,
+    STAGE_LABELS,
+    ScenarioConfig,
+    crop_grid,
+    crop_indices,
+    crop_keys,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -139,6 +146,54 @@ def _irrigation_series(env: pd.DataFrame, days: int) -> np.ndarray:
     return applied
 
 
+def _crop_yields(
+    cfg: ScenarioConfig,
+    final_biomass_g: np.ndarray,
+) -> tuple[list[dict[str, Any]], float, float]:
+    """Marketable yield of every planted crop, and the field totals.
+
+    A mixed field has no single harvest index or dry-matter fraction, so the two
+    conversions are applied per crop over *its own* cells and only then added:
+    summing raw numbers would price a lettuce bed as if it were a tomato.  Each
+    row reports its own per-hectare figure; the field total is the area-weighted
+    mean, which is the number that matches "what did this hectare produce".
+    """
+    cells = cfg.rows * cfg.cols
+    planted = crop_grid(cfg)
+    keys = crop_keys(cfg)
+
+    rows: list[dict[str, Any]] = []
+    total_kg = 0.0
+    weighted = 0.0
+    for key in keys:
+        mask = np.asarray([crop == key for crop in planted], dtype=bool)
+        count = int(np.count_nonzero(mask))
+        if count == 0:
+            continue
+        profile = CROP_PROFILES[key]
+        index = cfg.harvest_index if cfg.harvest_index is not None else profile.harvest_index
+        mean_biomass_g = float(np.mean(final_biomass_g[mask]))
+        biomass_t_ha = mean_biomass_g * cfg.plants_per_m2 * 10.0 / 1000.0
+        harvested_dry_t_ha = biomass_t_ha * index
+        fresh_t_ha = harvested_dry_t_ha / profile.dry_matter_fraction * profile.marketable_fraction
+        crop_kg = fresh_t_ha * count / 10_000.0 * 1000.0
+        total_kg += crop_kg
+        weighted += fresh_t_ha * count / max(1, cells)
+        rows.append(
+            {
+                "key": key,
+                "label": profile.label,
+                "cells": count,
+                "share": round(count / max(1, cells), 4),
+                "harvest_index": round(index, 3),
+                "biomass_t_per_ha": round(biomass_t_ha, 3),
+                "t_per_ha": round(fresh_t_ha, 3),
+                "total_kg": round(crop_kg, 1),
+            }
+        )
+    return rows, round(weighted, 3), round(total_kg, 1)
+
+
 def build_bundle(
     *,
     cfg: ScenarioConfig,
@@ -253,13 +308,16 @@ def build_bundle(
     #
     # For greenhouse vegetables the index gives fruit *dry matter*; marketable
     # yield is fresh weight, so the crop's dry-matter fraction and the share
-    # that actually grades out are applied on top.
+    # that actually grades out are applied on top.  With several crops in the
+    # field both factors belong to the crop, so they are applied per crop and
+    # only then averaged over planted area.
+    final_biomass_g = stacks["biomass"][-1] if days else np.zeros(cfg.rows * cfg.cols)
+    per_crop, estimated_t_ha, total_kg = _crop_yields(cfg, final_biomass_g)
+    mean_biomass_g = float(np.mean(final_biomass_g)) if days else 0.0
+    biomass_t_ha = mean_biomass_g * cfg.plants_per_m2 * 10.0 / 1000.0
     profile = CROP_PROFILES[cfg.crop]
-    final_biomass_g = float(np.mean(stacks["biomass"][-1])) if days else 0.0
-    biomass_t_ha = final_biomass_g * cfg.plants_per_m2 * 10.0 / 1000.0
-    harvested_dry_t_ha = biomass_t_ha * cfg.harvest_index
-    estimated_t_ha = harvested_dry_t_ha / profile.dry_matter_fraction * profile.marketable_fraction
     engine_t_ha = round(float((yield_summary or {}).get("yield_t_per_ha", 0.0)), 3)
+    harvest_index = cfg.harvest_index if cfg.harvest_index is not None else profile.harvest_index
 
     return {
         "id": run_id,
@@ -289,6 +347,10 @@ def build_bundle(
             "elapsed_s": round(elapsed_s, 2),
             "physics": cfg.physics.model_dump(),
             "weather": weather or {},
+            "mosaic": len(crop_keys(cfg)) > 1,
+            # Every crop planted in this run, in first-appearance order — the
+            # client indexes `grid.crop_index` into this list.
+            "crops": [{"key": key, "label": CROP_PROFILES[key].label} for key in crop_keys(cfg)],
         },
         "grid": {
             "rows": rows,
@@ -298,6 +360,7 @@ def build_bundle(
             "plant_spacing_m": cfg.plant_spacing_m,
             "row_spacing_m": cfg.row_spacing_m,
             "elevation": [round(float(value), 3) for value in elevation_values],
+            "crop_index": crop_indices(cfg),
         },
         "channels": {
             spec.name: {
@@ -313,9 +376,10 @@ def build_bundle(
         "frames": frames,
         "yield": {
             "t_per_ha": round(estimated_t_ha, 3),
-            "total_kg": round(estimated_t_ha * rows * cols / 10_000.0 * 1000.0, 1),
+            "total_kg": total_kg,
             "biomass_t_per_ha": round(biomass_t_ha, 3),
-            "harvest_index": cfg.harvest_index,
+            "harvest_index": round(harvest_index, 3),
             "engine_t_per_ha": engine_t_ha,
+            "crops": per_crop,
         },
     }

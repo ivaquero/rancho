@@ -29,7 +29,7 @@ import numpy as np
 
 from rancho.climate import SoilField
 from rancho.crops import TEMPLATES, CropTemplate
-from rancho.scenario import ScenarioConfig
+from rancho.scenario import ScenarioConfig, crop_grid
 
 
 @dataclass(frozen=True, slots=True)
@@ -94,18 +94,41 @@ _OFFSETS: tuple[tuple[int, int], ...] = (
 
 
 class AgronomyModel:
-    """Per-cell root-zone water + nitrogen state, advanced once per day."""
+    """Per-cell root-zone water + nitrogen state, advanced once per day.
+
+    One instance covers the whole field, including a mixed one: every coefficient
+    below that belongs to the *crop* is held as a ``rows × cols`` array rather
+    than a scalar, so a bed of lettuce next to a bed of tomato dries down on its
+    own schedule and takes its own nitrogen.  Building those arrays from
+    :func:`rancho.scenario.crop_grid` is the whole trick — nothing else in this
+    class knows whether the field carries one crop or five.
+    """
 
     def __init__(self, cfg: ScenarioConfig, soil: SoilField) -> None:
         self._cfg = cfg
         self._soil = soil
-        self._water = CROP_WATER[cfg.crop]
+        shape = (soil.rows, soil.cols)
+        keys, index = self._crop_layout(cfg, shape)
+        params = [CROP_WATER[key] for key in keys]
+        self._water = params
+        self._index = index
+
+        self._root_zone = np.asarray([crop.root_zone_mm for crop in params])[index]
+        self._kc = np.asarray([crop.kc_mid for crop in params])[index]
+        self._depletion = np.asarray([crop.depletion_fraction for crop in params])[index]
+        self._extinction = np.asarray([crop.k_extinction for crop in params])[index]
+        self._n_concentration = np.asarray([crop.n_concentration for crop in params])[index]
+        # Each crop keeps its own top-dressing calendar: the composed schedule is
+        # per cell, so two beds are never fed on someone else's dates.
+        self._schedules = [
+            (key, self._split_days(cfg, crop)) for key, crop in zip(keys, params, strict=False)
+        ]
+
         self._moisture = soil.moisture.astype(np.float64).copy()
         self._nitrogen = soil.nitrogen.astype(np.float64).copy()
         self._biomass = np.zeros((soil.rows, soil.cols), dtype=np.float64)
         self._day = 0
         self._runoff, self._receiver = self._route_runoff(soil)
-        self._fertiliser_days = self._split_days(cfg)
         # Irrigation is zonal: a system covers part of the field and the rest is
         # rainfed, which is what keeps the grid from being levelled to one
         # moisture value (see :meth:`_allocate_irrigation`).
@@ -120,6 +143,35 @@ class AgronomyModel:
     # ------------------------------------------------------------------
     # Setup
     # ------------------------------------------------------------------
+
+    @staticmethod
+    def _crop_layout(
+        cfg: ScenarioConfig,
+        shape: tuple[int, int],
+    ) -> tuple[tuple[str, ...], np.ndarray]:
+        """Unique crops and a per-cell index into them.
+
+        The order is first appearance so that the UI legend lists crops in the
+        order they were planted rather than alphabetically.
+        """
+        lookup: dict[str, int] = {}
+        flat: list[int] = []
+        keys: list[str] = []
+        for key in crop_grid(cfg):
+            index = lookup.get(key)
+            if index is None:
+                index = len(keys)
+                lookup[key] = index
+                keys.append(key)
+            flat.append(index)
+        return tuple(keys), np.asarray(flat, dtype=np.int64).reshape(shape)
+
+    @staticmethod
+    def _split_days(cfg: ScenarioConfig, crop: CropWaterParams) -> frozenset[int]:
+        """Fertiliser splits along the season — basal plus top-dressings."""
+        if cfg.fertiliser_kg_ha <= 0.0 or not crop.splits:
+            return frozenset()
+        return frozenset(max(1, round(cfg.days * share)) for share in crop.splits)
 
     @staticmethod
     def _route_runoff(soil: SoilField) -> tuple[np.ndarray, np.ndarray]:
@@ -158,13 +210,6 @@ class AgronomyModel:
         return runoff, receiver.reshape(-1)
 
     @staticmethod
-    def _split_days(cfg: ScenarioConfig) -> frozenset[int]:
-        """Fertiliser splits along the season — basal plus top-dressings."""
-        if cfg.fertiliser_kg_ha <= 0.0:
-            return frozenset()
-        return frozenset(max(1, round(cfg.days * share)) for share in CROP_WATER[cfg.crop].splits)
-
-    @staticmethod
     def _irrigation_zone(cfg: ScenarioConfig, soil: SoilField) -> np.ndarray:
         """Boolean mask of the cells the irrigation system actually reaches.
 
@@ -195,16 +240,14 @@ class AgronomyModel:
         np.add.at(pooled.reshape(-1), self._receiver, shed.reshape(-1))
 
         irrigation = self._allocate_irrigation()
-        self._moisture += (inflow + pooled + irrigation) / self._water.root_zone_mm * 100.0
+        self._moisture += (inflow + pooled + irrigation) / self._root_zone * 100.0
         np.minimum(self._moisture, soil.field_capacity + 1.5, out=self._moisture)
 
-        span = np.maximum(
-            1e-6, self._water.depletion_fraction * (soil.field_capacity - soil.wilting_point)
-        )
+        span = np.maximum(1e-6, self._depletion * (soil.field_capacity - soil.wilting_point))
         stress = np.clip((self._moisture - soil.wilting_point) / span, 0.0, 1.0)
 
-        demand = max(0.0, float(env.et0_mm)) * self._water.kc_mid * stress
-        self._moisture -= demand / self._water.root_zone_mm * 100.0
+        demand = max(0.0, float(env.et0_mm)) * self._kc * stress
+        self._moisture -= demand / self._root_zone * 100.0
         np.maximum(self._moisture, soil.wilting_point * 0.55, out=self._moisture)
 
         self._update_nitrogen(state, rain)
@@ -250,7 +293,7 @@ class AgronomyModel:
         that share that cell, which is both density-independent and correct.
         """
         density = max(1e-6, self._cfg.plants_per_m2)
-        canopy = 1.0 - np.exp(-self._water.k_extinction * np.maximum(0.0, self._lai_written))
+        canopy = 1.0 - np.exp(-self._extinction * np.maximum(0.0, self._lai_written))
 
         radiation = float(env.radiation_mj_m2)
         grid = env.custom.get("solar_rad_corrected_mj")
@@ -275,12 +318,18 @@ class AgronomyModel:
         growth_g = np.maximum(0.0, biomass - self._biomass)
         self._biomass = biomass
 
-        supply = MINERALISATION_KG_HA_DAY
-        if self._day in self._fertiliser_days:
-            supply += self._cfg.fertiliser_kg_ha / len(self._fertiliser_days)
+        supply = np.full_like(self._moisture, MINERALISATION_KG_HA_DAY)
+        for position, (_, schedule) in enumerate(self._schedules):
+            if not schedule or self._day not in schedule:
+                continue
+            # A cell is fed when *its own* crop's calendar says so, so every
+            # bed still receives the season total regardless of how many splits
+            # its schedule spreads it over.
+            dose = self._cfg.fertiliser_kg_ha / len(schedule)
+            supply = np.where(self._index == position, supply + dose, supply)
 
         # g/plant → kg DM/ha, times tissue N concentration.
-        uptake = growth_g * self._cfg.plants_per_m2 * 10.0 * self._water.n_concentration
+        uptake = growth_g * self._cfg.plants_per_m2 * 10.0 * self._n_concentration
         leached = max(0.0, rain - 15.0) * LEACHING_PER_MM
         self._nitrogen = np.maximum(1.5, self._nitrogen + supply - uptake - leached)
 

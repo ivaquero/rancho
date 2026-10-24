@@ -18,3 +18,4 @@ splits = [0.02, 0.22, 0.40]
 [product]
 dry_matter_fraction = 1.0
 marketable_fraction = 1.0
+harvest_index = 0.46

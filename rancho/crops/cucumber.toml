@@ -63,6 +63,7 @@ splits = [0.03, 0.20, 0.40, 0.60]   # 四次追肥
 [product]
 dry_matter_fraction = 0.045
 marketable_fraction = 0.95
+harvest_index = 0.55                # 连续采收：茎叶留存比例高于番茄
 
 [market]
 price_yuan_kg = 9.0

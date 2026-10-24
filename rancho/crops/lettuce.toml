@@ -47,6 +47,7 @@ splits = [0.05, 0.30, 0.55]         # 三次追肥
 [product]
 dry_matter_fraction = 0.050
 marketable_fraction = 0.90
+harvest_index = 0.78                # 叶球几乎就是整株地上部
 
 [market]
 price_yuan_kg = 7.0

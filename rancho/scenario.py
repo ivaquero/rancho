@@ -23,6 +23,15 @@ BUILTIN_CROPS: frozenset[str] = frozenset({"wheat", "maize"})
 #: a ``Literal`` on purpose — dropping a new ``<id>.toml`` into :mod:`rancho.crops`
 #: must make it selectable without editing this file.
 CROP_KEYS: frozenset[str] = BUILTIN_CROPS | frozenset(TEMPLATES)
+
+#: Crops that may be planted *per cell*.  The restriction is not agronomic but
+#: mechanical: CropForge's own plugins (the cereals) step the whole field in one
+#: call and cannot be told which cells belong to them, while the templated crops
+#: use Rancho's own phenology, which steps one plant at a time.  Adding a TOML
+#: file therefore makes a new crop mixable as well.
+MOSAIC_KEYS: frozenset[str] = frozenset(
+    key for key, template in TEMPLATES.items() if template.has_phenology
+)
 SoilKind = Literal["loam", "clay", "sandy", "andisol"]
 ClimateKind = Literal["temperate", "continental", "semi-arid", "tropical"]
 WeatherSource = Literal["synthetic", "open-meteo"]
@@ -65,6 +74,10 @@ class CropProfile:
     species: str
     dry_matter_fraction: float = 1.0
     marketable_fraction: float = 1.0
+    #: Share of above-ground dry matter reaching the harvested organ, from the
+    #: template.  Lives with the product description because "how much of the
+    #: plant is sold" and "what fraction of it is dry matter" are one question.
+    harvest_index: float = 0.38
 
 
 #: Crop → product description.  Kept next to the scenario because yield is a
@@ -76,6 +89,7 @@ CROP_PROFILES: dict[str, CropProfile] = {
         template.species,
         template.product.dry_matter_fraction,
         template.product.marketable_fraction,
+        template.product.harvest_index,
     )
     for key, template in TEMPLATES.items()
 }
@@ -128,6 +142,12 @@ class ScenarioConfig(BaseModel):
     variety: str = Field(default="HD-2967", min_length=1, max_length=48)
     sowing_doy: int = Field(default=300, ge=1, le=366)
 
+    #: Which crop grows in each cell, row-major and exactly ``rows × cols`` long.
+    #: ``None`` means the whole field carries :attr:`crop`.  Every entry must be
+    #: one of :data:`MOSAIC_KEYS` — see :func:`crop_grid` for why the list rather
+    #: than a compact encoding is the wire format here.
+    crop_map: list[str] | None = Field(default=None)
+
     row_spacing_m: float = Field(default=0.25, gt=0.01, le=2.0)
     plant_spacing_m: float = Field(default=0.10, gt=0.01, le=2.0)
 
@@ -154,7 +174,10 @@ class ScenarioConfig(BaseModel):
     irrigation_coverage: float = Field(default=0.58, ge=0.1, le=1.0)
     #: Share of above-ground dry matter that ends up in the harvested organ.
     #: Cereals sit near 0.4; a lettuce head is most of the plant, hence 0.9.
-    harvest_index: float = Field(default=0.38, ge=0.10, le=0.90)
+    #: Left ``None`` the value comes from the crop's ``[product]`` table, which
+    #: is what every bundled preset does — the field exists to try a hypothesis
+    #: ("what if this variety translocates 10 % more?") without editing crops.
+    harvest_index: float | None = Field(default=None, ge=0.10, le=0.90)
     fertiliser_kg_ha: float = Field(default=80.0, ge=0.0, le=400.0)
 
     physics: PhysicsConfig = Field(default_factory=PhysicsConfig)
@@ -162,15 +185,79 @@ class ScenarioConfig(BaseModel):
 
     @model_validator(mode="after")
     def _check_crop(self) -> ScenarioConfig:
-        """Reject a crop no plugin and no template can serve."""
+        """Reject crops the engine cannot run, and a map that does not fit."""
         if self.crop not in CROP_KEYS:
             raise ValueError(f"未知作物 {self.crop!r}，可选 {sorted(CROP_KEYS)}")
+        if self.crop_map is None:
+            return self
+        expected = self.rows * self.cols
+        if len(self.crop_map) != expected:
+            raise ValueError(
+                f"crop_map 有 {len(self.crop_map)} 项，地块是 {self.rows}×{self.cols}"
+                f"（应 {expected} 项）"
+            )
+        foreign = sorted({key for key in self.crop_map if key not in MOSAIC_KEYS})
+        if foreign:
+            raise ValueError(
+                f"逐格混作只支持 Rancho 自带物候的作物 {sorted(MOSAIC_KEYS)}，"
+                f"不支持 {foreign}（它们的物候由 CropForge 插件整块推进）"
+            )
         return self
 
     @property
     def plants_per_m2(self) -> float:
         """Sowing density implied by the plant geometry."""
         return 1.0 / (self.row_spacing_m * self.plant_spacing_m)
+
+    @property
+    def mosaic(self) -> bool:
+        """Whether this scenario plants more than one crop."""
+        return bool(self.crop_map) and any(key != self.crop_map[0] for key in self.crop_map)
+
+    def with_grid(self, rows: int, cols: int) -> ScenarioConfig:
+        """Copy for a resized field, remapping the crop map by nearest cell.
+
+        Growing or shrinking the grid must not throw away a hand-painted
+        layout, so every cell of the new geometry takes the crop of the cell
+        that used to sit at the same *relative* position.
+        """
+        updates: dict[str, object] = {"rows": rows, "cols": cols}
+        if self.crop_map:
+            source = list(self.crop_map)
+            remapped: list[str] = []
+            for row in range(rows):
+                source_row = min(self.rows - 1, round(row * self.rows / rows))
+                for col in range(cols):
+                    source_col = min(self.cols - 1, round(col * self.cols / cols))
+                    remapped.append(source[source_row * self.cols + source_col])
+            updates["crop_map"] = remapped
+        return self.model_copy(update=updates)
+
+
+def crop_grid(cfg: ScenarioConfig) -> list[str]:
+    """The crop of every cell, row-major — :attr:`crop` repeated when no map.
+
+    Everything downstream reads the grid rather than ``cfg.crop`` so that the
+    single-crop case has no branch of its own: one uniform map behaves exactly
+    like a scenario that never set one.
+    """
+    if cfg.crop_map is None:
+        return [cfg.crop] * (cfg.rows * cfg.cols)
+    return list(cfg.crop_map)
+
+
+def crop_keys(cfg: ScenarioConfig) -> tuple[str, ...]:
+    """Every crop planted in this scenario, in the order the UI should show them."""
+    keys: dict[str, None] = {}
+    for key in crop_grid(cfg):
+        keys.setdefault(key, None)
+    return tuple(keys)
+
+
+def crop_indices(cfg: ScenarioConfig) -> list[int]:
+    """Per-cell index into :func:`crop_keys` — what the bundle ships to the client."""
+    lookup = {key: index for index, key in enumerate(crop_keys(cfg))}
+    return [lookup[key] for key in crop_grid(cfg)]
 
 
 PRESETS: dict[str, dict[str, object]] = {
@@ -212,7 +299,6 @@ PRESETS: dict[str, dict[str, object]] = {
             terrain="flat",
             irrigation=False,
             fertiliser_kg_ha=70.0,
-            harvest_index=0.46,
             soil_pattern="patches",
             soil_variation=0.85,
             physics=PhysicsConfig(et0=True, radiation=True),
@@ -291,7 +377,6 @@ PRESETS: dict[str, dict[str, object]] = {
             irrigation_threshold_pct=26.0,
             irrigation_mm=10.0,
             irrigation_coverage=0.90,
-            harvest_index=0.32,
             fertiliser_kg_ha=280.0,
             protected=True,
             cover_transmission=0.55,
@@ -325,10 +410,49 @@ PRESETS: dict[str, dict[str, object]] = {
             irrigation_threshold_pct=26.0,
             irrigation_mm=6.0,
             irrigation_coverage=0.94,
-            harvest_index=0.78,
             fertiliser_kg_ha=95.0,
             protected=True,
             cover_transmission=0.60,
+            physics=PhysicsConfig(et0=True, radiation=True),
+        ),
+    },
+    "salvador-mosaic": {
+        "label": "萨尔瓦多 · 大棚混作",
+        "description": (
+            "同一座棚里按畦分作物：番茄 | 黄瓜 | 生菜三带并列，看跨畦争水争氮时各自的产量与胁迫。"
+        ),
+        "config": ScenarioConfig(
+            name="Invernadero Mixto",
+            rows=18,
+            cols=39,
+            days=120,
+            crop="tomato",
+            variety="Caiman F1",
+            sowing_doy=310,
+            # Three bands along the length of the house — a hand-written layout,
+            # exactly what painting cells in the UI produces.
+            crop_map=[
+                "tomato" if col < 13 else "cucumber" if col < 26 else "lettuce"
+                for _row in range(18)
+                for col in range(39)
+            ],
+            row_spacing_m=0.90,
+            plant_spacing_m=0.45,
+            soil="andisol",
+            soil_pattern="patches",
+            soil_variation=0.45,
+            climate="tropical",
+            terrain="slope",
+            slope_pct=6.0,
+            latitude=13.69,
+            longitude=-89.22,
+            irrigation=True,
+            irrigation_threshold_pct=26.0,
+            irrigation_mm=10.0,
+            irrigation_coverage=0.90,
+            fertiliser_kg_ha=220.0,
+            protected=True,
+            cover_transmission=0.55,
             physics=PhysicsConfig(et0=True, radiation=True),
         ),
     },
@@ -360,7 +484,6 @@ PRESETS: dict[str, dict[str, object]] = {
             irrigation_threshold_pct=26.0,
             irrigation_mm=10.0,
             irrigation_coverage=0.90,
-            harvest_index=0.32,
             fertiliser_kg_ha=280.0,
             protected=True,
             cover_transmission=0.55,
@@ -370,4 +493,8 @@ PRESETS: dict[str, dict[str, object]] = {
     },
 }
 
-DEFAULT_PRESET = "rabi-wheat"
+#: Greenhouse vegetables are the default for a reason: the protected preset is
+#: the one that exercises every layer Rancho adds on top of CropForge (cover
+#: micro-climate, trellised canopy, fresh-weight yield), so it is also the one
+#: worth landing on.
+DEFAULT_PRESET = "salvador-greenhouse"

@@ -115,11 +115,21 @@ class GreenhouseVegetable(CropPlugin):
         for plant in state.plants:
             if not plant.alive:
                 continue
-            stage = self._update_phenology(plant, env)
-            self._update_canopy(plant, env, stage)
-            self._accumulate_biomass(plant)
-            self._update_height(plant)
+            self.step_plant(plant, env)
         return state
+
+    def step_plant(self, plant, env) -> None:
+        """Advance *one* plant one day.
+
+        The per-plant form exists because :mod:`rancho.mosaic` may need a
+        different crop for every cell: the dispatcher is what decides which
+        plugin each plant goes to, and ``step`` is then just this method run
+        over the whole field.
+        """
+        stage = self._update_phenology(plant, env)
+        self._update_canopy(plant, env, stage)
+        self._accumulate_biomass(plant)
+        self._update_height(plant)
 
     # ------------------------------------------------------------------
     # Sub-models

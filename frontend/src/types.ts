@@ -55,6 +55,29 @@ export interface WeatherMeta {
   mean_wind_ms: number;
 }
 
+/** One selectable crop — what `/api/crops` returns. */
+export interface CropOption {
+  key: string;
+  label: string;
+  species: string;
+  mixable: boolean;
+  season_gdd: number;
+  root_zone_mm: number;
+  has_market: boolean;
+}
+
+/** Per-crop harvest ledger inside the bundle. */
+export interface CropYield {
+  key: string;
+  label: string;
+  cells: number;
+  share: number;
+  harvest_index: number;
+  biomass_t_per_ha: number;
+  t_per_ha: number;
+  total_kg: number;
+}
+
 export interface RunMeta {
   name: string;
   rows: number;
@@ -79,6 +102,10 @@ export interface RunMeta {
   seed: number;
   elapsed_s: number;
   weather?: WeatherMeta;
+  /** True when the run planted more than one crop. */
+  mosaic?: boolean;
+  /** Every crop planted, in the order `grid.crop_index` indexes into. */
+  crops?: { key: string; label: string }[];
 }
 
 export interface YieldSummary {
@@ -87,6 +114,7 @@ export interface YieldSummary {
   biomass_t_per_ha: number;
   harvest_index: number;
   engine_t_per_ha: number;
+  crops: CropYield[];
 }
 
 export interface Bundle {
@@ -101,6 +129,8 @@ export interface Bundle {
     plant_spacing_m: number;
     row_spacing_m: number;
     elevation: number[];
+    /** Per-cell index into `meta.crops`, row-major. */
+    crop_index?: number[];
   };
   channels: Record<string, ChannelMeta>;
   stages: { key: string; label: string }[];
@@ -114,6 +144,15 @@ export interface Preset {
   label: string;
   description: string;
   config: Record<string, unknown>;
+  /** The scenario the server opens on. */
+  default?: boolean;
+}
+
+/** Field-size bounds from `/api/limits` — what the sliders run between. */
+export interface Limits {
+  rows: { min: number; max: number; default: number };
+  cols: { min: number; max: number; default: number };
+  days: { min: number; max: number; default: number };
 }
 
 const B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";

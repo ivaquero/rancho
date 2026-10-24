@@ -1,8 +1,10 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 
-import { rampFor, sampleRamp, stageColor } from "./palette";
+import { cropColor, rampFor, sampleRamp, stageColor } from "./palette";
 import { decodeChannel, type Bundle } from "./types";
+
+export const CROP_CHANNEL = "crop";
 
 const PLANTS_PER_CELL = 6;
 const GROUND_SHADE = 0.74;
@@ -193,6 +195,9 @@ export class FieldScene {
   private dirty = true;
   private disposed = false;
   private hovered: { row: number; col: number } | null = null;
+  private painting = false;
+  private cropCells: Float32Array = new Float32Array(0);
+  private cropPreview: Float32Array | null = null;
 
   onHover: ((info: HoverInfo | null) => void) | null = null;
   onPick: ((row: number, col: number) => void) | null = null;
@@ -239,6 +244,7 @@ export class FieldScene {
     canvas.addEventListener("pointermove", this.handlePointerMove);
     canvas.addEventListener("pointerleave", this.handlePointerLeave);
     canvas.addEventListener("pointerdown", this.handlePointerDown);
+    window.addEventListener("pointerup", this.handlePointerUp);
     this.resize();
     this.renderer.setAnimationLoop(this.animate);
   }
@@ -336,6 +342,10 @@ export class FieldScene {
     this.shownValues = new Float32Array(cells);
     this.targetBiomass = new Float32Array(cells);
     this.shownBiomass = new Float32Array(cells);
+    this.cropCells = new Float32Array(cells);
+    if (bundle.grid.crop_index && bundle.grid.crop_index.length === cells) {
+      this.cropCells = Float32Array.from(bundle.grid.crop_index);
+    }
 
     this.sun.target.position.set(0, 0, 0);
     this.sun.position.set(-span * 0.6, span * 0.95, span * 0.45);
@@ -359,6 +369,22 @@ export class FieldScene {
     this.dirty = true;
   }
 
+  /** Replace what the crop channel colours by — before the run comes back.
+   *
+   * Painting a cell has to be visible immediately, otherwise the brush feels
+   * like it did nothing until the next simulation finishes.  ``null`` falls
+   * back to the layout the bundle actually ran with.
+   */
+  setCropPreview(cells: number[] | null): void {
+    this.cropPreview = cells && cells.length ? Float32Array.from(cells) : null;
+    this.dirty = true;
+  }
+
+  /** Painting instead of orbiting: left-drag keeps working once rotate is off. */
+  setPaintEnabled(enabled: boolean): void {
+    this.controls.enableRotate = !enabled;
+  }
+
   /** Apply one frame of the bundle (index into `bundle.frames`). */
   setFrame(index: number): void {
     const bundle = this.bundle;
@@ -370,6 +396,12 @@ export class FieldScene {
     const payload = frame.ch[this.channel];
     if (meta && payload) {
       decodeChannel(payload, meta.domain, this.targetValues);
+    }
+    const cropIndex = this.cropPreview ?? bundle.grid.crop_index;
+    if (cropIndex && cropIndex.length === this.targetValues.length) {
+      this.cropCells = Float32Array.from(cropIndex);
+    } else if (this.cropCells.length !== this.targetValues.length) {
+      this.cropCells = new Float32Array(this.targetValues.length);
     }
     const biomass = bundle.channels.biomass;
     const biomassPayload = frame.ch.biomass;
@@ -404,6 +436,7 @@ export class FieldScene {
     this.canvas.removeEventListener("pointermove", this.handlePointerMove);
     this.canvas.removeEventListener("pointerleave", this.handlePointerLeave);
     this.canvas.removeEventListener("pointerdown", this.handlePointerDown);
+    window.removeEventListener("pointerup", this.handlePointerUp);
     this.clearField();
     this.renderer.dispose();
   }
@@ -468,6 +501,7 @@ export class FieldScene {
     }
     this.onHover?.(cell ? { ...cell, clientX: event.clientX, clientY: event.clientY } : null);
     this.canvas.style.cursor = cell ? "crosshair" : "grab";
+    if (cell && this.painting) this.onPick?.(cell.row, cell.col);
   };
 
   private readonly handlePointerLeave = (): void => {
@@ -476,8 +510,15 @@ export class FieldScene {
     this.onHover?.(null);
   };
 
-  private readonly handlePointerDown = (): void => {
+  private readonly handlePointerDown = (event: PointerEvent): void => {
+    // Orbit is disabled while painting, so a drag can paint a whole row without
+    // also swinging the camera; a plain click works either way.
+    if (event.button === 0) this.painting = true;
     if (this.hovered) this.onPick?.(this.hovered.row, this.hovered.col);
+  };
+
+  private readonly handlePointerUp = (): void => {
+    this.painting = false;
   };
 
   private pickCell(): { row: number; col: number } | null {
@@ -515,6 +556,7 @@ export class FieldScene {
     const depth = rows * cell;
     const meta = bundle.channels[this.channel];
     const stageMode = this.channel === "stage";
+    const cropMode = this.channel === CROP_CHANNEL;
     const ramp = rampFor(this.channel);
     const [low, high] = meta?.domain ?? [0, 1];
     const span = high - low || 1;
@@ -543,8 +585,13 @@ export class FieldScene {
     for (let index = 0; index < cells; index += 1) {
       const row = Math.floor(index / cols);
       const col = index % cols;
-      const t = (this.shownValues[index] - low) / span;
-      const [r, g, b] = stageMode ? stageColor(this.shownValues[index]) : sampleRamp(ramp, t);
+      const value = cropMode ? (this.cropCells[index] ?? 0) : this.shownValues[index];
+      const t = (value - low) / span;
+      const [r, g, b] = cropMode
+        ? cropColor(value)
+        : stageMode
+          ? stageColor(value)
+          : sampleRamp(ramp, t);
       color.setRGB(r, g, b, THREE.SRGBColorSpace);
 
       pixels[index * 4] = Math.round(r * GROUND_SHADE * 255);

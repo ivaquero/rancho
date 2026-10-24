@@ -20,3 +20,4 @@ splits = [0.02, 0.22, 0.40]         # 三次追肥
 [product]
 dry_matter_fraction = 1.0           # 籽粒按收获水分计，收获指数单独折算
 marketable_fraction = 1.0
+harvest_index = 0.38

@@ -106,6 +106,27 @@ const STAGE_HEX = [
   "#8a4a34",
 ];
 
+/** One colour per crop, for the layout channel and the brush palette. */
+export const CROP_SWATCHES: string[] = [
+  "#c85a3c",
+  "#5aa36a",
+  "#d0a63c",
+  "#5b86bd",
+  "#a462ac",
+  "#4fa39a",
+  "#b3714a",
+  "#7f8f4e",
+];
+
+export function cropColor(index: number): Rgb {
+  const hex = CROP_SWATCHES[Math.max(0, index) % CROP_SWATCHES.length] ?? "#888888";
+  return [
+    parseInt(hex.slice(1, 3), 16) / 255,
+    parseInt(hex.slice(3, 5), 16) / 255,
+    parseInt(hex.slice(5, 7), 16) / 255,
+  ];
+}
+
 export function stageColor(index: number): Rgb {
   const hex = STAGE_HEX[Math.min(STAGE_HEX.length - 1, Math.max(0, Math.round(index)))];
   return [

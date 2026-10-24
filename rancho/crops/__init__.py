@@ -128,6 +128,9 @@ class Product(_Strict):
 
     dry_matter_fraction: float = Field(gt=0.0, le=1.0)
     marketable_fraction: float = Field(gt=0.0, le=1.0)
+    #: Share of above-ground dry matter that ends up in the harvested organ.
+    #: A cereal grain sits near 0.4; a lettuce head is most of the plant.
+    harvest_index: float = Field(gt=0.0, le=0.95)
 
 
 class Market(_Strict):

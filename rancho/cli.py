@@ -258,13 +258,12 @@ def _serve(args: argparse.Namespace) -> int:
 def _simulate(args: argparse.Namespace) -> int:
     preset = PRESETS[args.preset]
     config = ScenarioConfig.model_validate(preset["config"])
-    overrides = {
-        key: value
-        for key, value in {"rows": args.rows, "cols": args.cols, "days": args.days}.items()
-        if value is not None
-    }
-    if overrides:
-        config = config.model_copy(update=overrides)
+    # Resizing must carry the layout along rather than invalidate it: a preset
+    # with a per-cell planting is still itself at another size.
+    if (args.rows, args.cols) != (None, None):
+        config = config.with_grid(args.rows or config.rows, args.cols or config.cols)
+    if args.days is not None:
+        config = config.model_copy(update={"days": args.days})
     weather_overrides = {
         key: value
         for key, value in {
@@ -293,9 +292,17 @@ def _simulate(args: argparse.Namespace) -> int:
     if weather:
         print(f"weather  : {weather['label']} · {weather['start']} → {weather['end']}")
     print(f"final    : LAI {last['lai']:.2f}, 生物量 {last['biomass']:.1f} g/株")
+    planted = bundle["yield"]["crops"]
     print(
-        f"yield    : {bundle['yield']['t_per_ha']:.2f} t/ha (收获指数 {bundle['yield']['harvest_index']:.2f} 估算)"
+        f"yield    : {bundle['yield']['t_per_ha']:.2f} t/ha"
+        f"（面积加权，{len(planted)} 种作物，{bundle['yield']['total_kg']:.0f} kg 合计）"
     )
+    for row in planted:
+        print(
+            f"           {row['label']:<4} {row['cells']:>5} 格 "
+            f"({row['share'] * 100:>4.1f}%) · {row['t_per_ha']:>7.2f} t/ha · "
+            f"收获指数 {row['harvest_index']:.2f} · {row['total_kg']:.0f} kg"
+        )
     print(f"bundle   : {out_path}")
     return 0
 

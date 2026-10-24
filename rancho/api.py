@@ -14,8 +14,14 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from rancho import __version__
+from rancho.crops import TEMPLATES
 from rancho.engine import run_id_for, run_scenario
-from rancho.scenario import DEFAULT_PRESET, PRESETS, ScenarioConfig
+from rancho.scenario import (
+    DEFAULT_PRESET,
+    MOSAIC_KEYS,
+    PRESETS,
+    ScenarioConfig,
+)
 from rancho.store import RunStore
 from rancho.weather import WeatherError, fetch_weather
 
@@ -72,9 +78,44 @@ def create_app(work_root: Path, dist_dir: Path | None = None) -> FastAPI:
                 "label": preset["label"],
                 "description": preset["description"],
                 "config": preset["config"],
+                # The client opens on this one, so the server decides rather
+                # than the frontend duplicating DEFAULT_PRESET.
+                "default": key == DEFAULT_PRESET,
             }
             for key, preset in PRESETS.items()
         ]
+
+    @app.get("/api/crops")
+    def list_crops() -> list[dict[str, Any]]:
+        """Every selectable crop: what it is called and whether a cell can hold it."""
+        return [
+            {
+                "key": key,
+                "label": template.label,
+                "species": template.species,
+                # Crops whose phenology CropForge owns cannot be planted per
+                # cell — see :data:`rancho.scenario.MOSAIC_KEYS`.
+                "mixable": key in MOSAIC_KEYS,
+                "season_gdd": template.season_gdd,
+                "root_zone_mm": template.water.root_zone_mm,
+                "has_market": template.market is not None,
+            }
+            for key, template in TEMPLATES.items()
+        ]
+
+    @app.get("/api/limits")
+    def list_limits() -> dict[str, Any]:
+        """The field sizes the engine accepts — what the sliders run between."""
+
+        def bounds(name: str) -> dict[str, Any]:
+            low: float | None = None
+            high: float | None = None
+            for meta in ScenarioConfig.model_fields[name].metadata:
+                low = getattr(meta, "ge", low)
+                high = getattr(meta, "le", high)
+            return {"min": low, "max": high, "default": ScenarioConfig.model_fields[name].default}
+
+        return {name: bounds(name) for name in ("rows", "cols", "days")}
 
     @app.get("/api/weather")
     def get_weather(

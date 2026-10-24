@@ -50,7 +50,7 @@ ANCHORS: dict[str, dict[str, object]] = {
         "growth": (1.55, 0.0045, 3.4, 0.012, ("maturity",), 0.45),
         "structure": (8.0, 220.0),
         "water": (450.0, 1.15, 0.40, 0.65, 0.032, (0.03, 0.18, 0.34, 0.50, 0.66, 0.80)),
-        "product": (0.055, 0.92),
+        "product": (0.055, 0.92, 0.32),
         "market": (14.0, 20.0, 130.0, 26.0, 18.0, 22.0, 9.0, 32.0, 34.0, 0.020, 85.0, 11.0, 0.35),
     },
     "cucumber": {
@@ -70,7 +70,7 @@ ANCHORS: dict[str, dict[str, object]] = {
         "growth": (1.45, 0.0070, 3.8, 0.015, ("maturity",), 0.55),
         "structure": (9.0, 250.0),
         "water": (350.0, 1.05, 0.45, 0.70, 0.030, (0.03, 0.20, 0.40, 0.60)),
-        "product": (0.045, 0.95),
+        "product": (0.045, 0.95, 0.55),
         "market": (9.0, 18.0, 110.0, 26.0, 17.0, 24.0, 12.0, 34.0, 35.0, 0.018, 100.0, 10.0, 0.32),
     },
     "lettuce": {
@@ -86,7 +86,7 @@ ANCHORS: dict[str, dict[str, object]] = {
         "growth": (0.80, 0.0035, 4.5, 0.020, (), 0.75),
         "structure": (3.2, 30.0),
         "water": (200.0, 1.00, 0.35, 0.70, 0.035, (0.05, 0.30, 0.55)),
-        "product": (0.050, 0.90),
+        "product": (0.050, 0.90, 0.78),
         "market": (7.0, 12.0, 90.0, 22.0, 16.0, 18.0, 4.0, 27.0, 29.0, 0.025, 120.0, 8.0, 0.25),
     },
     "wheat": {
@@ -97,7 +97,7 @@ ANCHORS: dict[str, dict[str, object]] = {
         "growth": None,
         "structure": None,
         "water": (300.0, 1.05, 0.50, 0.45, 0.028, (0.02, 0.22, 0.40)),
-        "product": (1.0, 1.0),
+        "product": (1.0, 1.0, 0.38),
         "market": None,
     },
     "maize": {
@@ -108,7 +108,7 @@ ANCHORS: dict[str, dict[str, object]] = {
         "growth": None,
         "structure": None,
         "water": (400.0, 1.15, 0.55, 0.55, 0.025, (0.02, 0.22, 0.40)),
-        "product": (1.0, 1.0),
+        "product": (1.0, 1.0, 0.46),
         "market": None,
     },
 }
@@ -149,6 +149,7 @@ splits = [0.10, 0.50]
 [product]
 dry_matter_fraction = 0.060
 marketable_fraction = 0.90
+harvest_index = 0.45
 """
 
 #: The economic block, appended to ``BASE`` when a test needs a priced crop.
@@ -280,6 +281,7 @@ def test_the_template_reproduces_the_literal_it_replaced(key: str) -> None:
     assert (
         template.product.dry_matter_fraction,
         template.product.marketable_fraction,
+        template.product.harvest_index,
     ) == anchor["product"]
     assert _market(template) == anchor["market"]
 
@@ -326,6 +328,7 @@ def test_the_water_and_product_tables_read_the_same_file(key: str) -> None:
     assert product.species == template.species
     assert product.dry_matter_fraction == template.product.dry_matter_fraction
     assert product.marketable_fraction == template.product.marketable_fraction
+    assert product.harvest_index == template.product.harvest_index
 
 
 def test_the_cereals_keep_only_the_coefficients_rancho_owns() -> None:

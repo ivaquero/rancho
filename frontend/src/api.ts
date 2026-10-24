@@ -1,4 +1,4 @@
-import type { Bundle, Preset } from "./types";
+import type { Bundle, CropOption, Limits, Preset } from "./types";
 
 const BASE = import.meta.env.DEV ? "" : "";
 
@@ -18,10 +18,26 @@ export function listPresets(): Promise<Preset[]> {
   return request<Preset[]>("/api/presets");
 }
 
+export function listCrops(): Promise<CropOption[]> {
+  return request<CropOption[]>("/api/crops");
+}
+
+export function listLimits(): Promise<Limits> {
+  return request<Limits>("/api/limits");
+}
+
 export function createRun(presetId: string): Promise<Bundle> {
   return request<Bundle>("/api/runs", {
     method: "POST",
     body: JSON.stringify({ preset: presetId }),
+  });
+}
+
+/** Run a scenario the UI assembled — a preset reshaped by the sliders and the brush. */
+export function createConfiguredRun(config: Record<string, unknown>): Promise<Bundle> {
+  return request<Bundle>("/api/runs", {
+    method: "POST",
+    body: JSON.stringify({ config }),
   });
 }
 
