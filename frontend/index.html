@@ -62,7 +62,7 @@
               <button id="fill-bands" class="btn btn--tiny" type="button">按列分带</button>
               <button id="reset-crops" class="btn btn--tiny" type="button">还原场景</button>
             </div>
-            <p class="hint" id="layout-hint">点击或拖拽地块给格子换作物，改动后自动重跑。</p>
+            <p class="hint" id="layout-hint">点击或拖拽地块给格子换作物，立刻上色；点「运行仿真」才重算。</p>
           </div>
           <dl id="crop-mix" class="metrics metrics--dim"></dl>
         </section>
@@ -85,6 +85,7 @@
               <input id="days" type="range" min="10" max="240" step="5" value="130" />
               <output id="days-out">130</output>
             </label>
+            <p class="hint" id="days-hint"></p>
             <p class="hint" id="grid-hint">18 × 40 = 720 格 · 0.072 ha</p>
           </div>
         </section>
@@ -134,7 +135,7 @@
       <div id="tooltip" class="tooltip" hidden></div>
       <div id="overlay" class="overlay">
         <div class="overlay__box">
-          <p id="overlay-text">首次加载会运行一次 200 天仿真，约需十秒。</p>
+          <p id="overlay-text">正在连接仿真服务…</p>
         </div>
       </div>
     </div>

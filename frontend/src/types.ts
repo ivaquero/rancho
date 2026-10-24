@@ -62,6 +62,8 @@ export interface CropOption {
   species: string;
   mixable: boolean;
   season_gdd: number;
+  /** Days from sowing to maturity — the horizon follows the slowest crop. */
+  season_days: number;
   root_zone_mm: number;
   has_market: boolean;
 }

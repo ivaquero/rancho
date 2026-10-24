@@ -203,7 +203,10 @@ def _regime_section(regime: RegimeResult) -> str:
         f"<h2>情景 · {html.escape(tariff.label)}</h2>",
         (
             '<p class="note">峰 '
-            f"{tariff.peak:.2f} / 平 {tariff.flat:.2f} / 谷 {tariff.valley:.2f} 元·kWh⁻¹，"
+            f"{tariff.peak:.4f} / 平 {tariff.flat:.4f} / 谷 {tariff.valley:.4f} "
+            f"{tariff.currency}·kWh⁻¹ ≈ "
+            f"{tariff.peak * tariff.fx:.2f} / {tariff.flat * tariff.fx:.2f} / "
+            f"{tariff.valley * tariff.fx:.2f} 元·kWh⁻¹，"
             "叠加每日市场化系数；水价与肥料价各自按随机游走漂移。</p>"
         ),
         f'<div class="{classes}"><span class="tag">{tag}</span>'

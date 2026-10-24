@@ -138,6 +138,9 @@ senescence_rate = 0.010
 k_height = 4.0
 max_height_cm = 40.0
 
+[season]
+days_to_maturity = 90
+
 [water]
 root_zone_mm = 150.0
 kc_mid = 1.0
@@ -457,10 +460,23 @@ def test_a_senescence_stage_must_be_one_of_the_stages(tmp_path: Path) -> None:
 def test_a_partial_phenology_block_is_refused(tmp_path: Path) -> None:
     """[growth] without [structure] leaves the canopy with no height to cap."""
     text = textwrap.dedent(BASE)
-    stripped = text[: text.index("[structure]")] + text[text.index("[water]") :]
+    stripped = text[: text.index("[structure]")] + text[text.index("[season]") :]
     path = _write(tmp_path, stripped)
     assert "[structure]" not in path.read_text(encoding="utf-8")
     _rejects(path, "物候参数必须整组给出")
+
+
+def test_a_crop_must_say_how_long_its_season_is(tmp_path: Path) -> None:
+    """Without [season] a scenario cannot know how long to run for."""
+    text = textwrap.dedent(BASE)
+    stripped = text[: text.index("[season]")] + text[text.index("[water]") :]
+    path = _write(tmp_path, stripped)
+    _rejects(path, "season")
+
+
+def test_a_season_longer_than_a_year_is_refused(tmp_path: Path) -> None:
+    path = _write(tmp_path, BASE.replace("days_to_maturity = 90", "days_to_maturity = 400"))
+    _rejects(path, "season.days_to_maturity")
 
 
 def test_fertiliser_splits_must_advance_through_the_season(tmp_path: Path) -> None:

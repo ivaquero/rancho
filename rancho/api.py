@@ -46,6 +46,11 @@ class RunRequest(BaseModel):
     config: ScenarioConfig | None = None
 
 
+def _default_scenario() -> ScenarioConfig:
+    """The scenario the UI opens on — what a slider falls back to."""
+    return ScenarioConfig.model_validate(PRESETS[DEFAULT_PRESET]["config"])
+
+
 def _resolve(request: RunRequest) -> ScenarioConfig:
     if request.config is not None:
         return request.config
@@ -99,6 +104,9 @@ def create_app(work_root: Path, dist_dir: Path | None = None) -> FastAPI:
                 # cell — see :data:`rancho.scenario.MOSAIC_KEYS`.
                 "mixable": key in MOSAIC_KEYS,
                 "season_gdd": template.season_gdd,
+                # Days this crop needs to mature — the client sets the horizon
+                # to the largest of these over the cells it planted.
+                "season_days": template.season.days_to_maturity,
                 "root_zone_mm": template.water.root_zone_mm,
                 "has_market": template.market is not None,
             }
@@ -115,7 +123,13 @@ def create_app(work_root: Path, dist_dir: Path | None = None) -> FastAPI:
             for meta in ScenarioConfig.model_fields[name].metadata:
                 low = getattr(meta, "ge", low)
                 high = getattr(meta, "le", high)
-            return {"min": low, "max": high, "default": ScenarioConfig.model_fields[name].default}
+            default = ScenarioConfig.model_fields[name].default
+            if default is None:
+                # ``days`` has no fixed default: it means "until the crop is
+                # ripe", which is not a number a slider can show.  Report what
+                # the default field's crop asks for instead.
+                default = season_days(_default_scenario())
+            return {"min": low, "max": high, "default": default}
 
         return {name: bounds(name) for name in ("rows", "cols", "days")}
 

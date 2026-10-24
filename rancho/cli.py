@@ -409,14 +409,16 @@ def _crops() -> int:
         print(f"{key:<10} {crop.label}")
         if crop.growth is not None:
             print(
-                f"{'':<10} 积温 {crop.season_gdd:>6.0f} °C·d · RUE {crop.growth.rue:.2f} · "
+                f"{'':<10} 全季 {crop.season.days_to_maturity} 天 · "
+                f"积温 {crop.season_gdd:>6.0f} °C·d · RUE {crop.growth.rue:.2f} · "
                 f"LAI≤ {crop.growth.lai_max:.1f} · 根区 {crop.water.root_zone_mm:.0f} mm · "
                 f"Kc {crop.water.kc_mid:.2f} · p {crop.water.depletion_fraction:.2f} · "
                 f"追肥 {len(crop.water.splits)} 次"
             )
         else:
             print(
-                f"{'':<10} 物候归 CropForge 自带插件 · 根区 {crop.water.root_zone_mm:.0f} mm · "
+                f"{'':<10} 全季 {crop.season.days_to_maturity} 天 · 物候归 CropForge 自带插件 · "
+                f"根区 {crop.water.root_zone_mm:.0f} mm · "
                 f"Kc {crop.water.kc_mid:.2f} · p {crop.water.depletion_fraction:.2f} · "
                 f"追肥 {len(crop.water.splits)} 次"
             )
@@ -468,9 +470,12 @@ def _econ(args: argparse.Namespace) -> int:
         )
     print(f"run      : {result.id}")
     for regime in result.regimes:
+        tariff = regime.tariff
         print(
-            f"\n情景     : {regime.tariff.label}（峰 {regime.tariff.peak} / 平 "
-            f"{regime.tariff.flat} / 谷 {regime.tariff.valley} 元/kWh）"
+            f"\n情景     : {tariff.label}（峰 {tariff.peak} / 平 {tariff.flat} / 谷 "
+            f"{tariff.valley} {tariff.currency}/kWh ≈ "
+            f"{tariff.peak * tariff.fx:.2f} / {tariff.flat * tariff.fx:.2f} / "
+            f"{tariff.valley * tariff.fx:.2f} 元/kWh）"
         )
         print(f"{'作物':<6}{'独享':>10}{'共享':>10}{'变动':>10}{'产量':>10}{'毛利':>10}{'逾配':>8}")
         for item in regime.comparisons:

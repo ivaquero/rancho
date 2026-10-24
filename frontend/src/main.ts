@@ -83,10 +83,10 @@ class App {
   private cols = 12;
   private days = 130;
   private cropMap: string[] = [];
+  /** Set once the user drags the horizon slider; until then it follows crops. */
+  private daysPinned = false;
   private paletteSignature = "";
-  private rerunTimer: number | null = null;
   private running = false;
-  private rerunQueued = false;
   private readonly channelBuffers = new Map<string, Float32Array>();
 
   constructor() {
@@ -159,17 +159,11 @@ class App {
       }
     }
 
-    overlay.hidden = false;
-    runButton.disabled = true;
-    overlayText.textContent = "正在运行首次仿真（约十秒）…";
-    try {
-      await this.runScenario();
-      overlay.hidden = true;
-    } catch (error) {
-      overlayText.textContent = `仿真失败：${String(error)}`;
-    } finally {
-      runButton.disabled = false;
-    }
+    // Nothing runs until the button is pressed: opening the page should show a
+    // field and a configuration, not a progress cover over an empty canvas.
+    overlay.hidden = true;
+    runButton.disabled = false;
+    this.markDirty();
   }
 
   private bindControls(): void {
@@ -177,7 +171,7 @@ class App {
 
     el<HTMLSelectElement>("preset").addEventListener("change", () => {
       this.adoptPreset();
-      void this.runScenario();
+      this.markDirty();
     });
 
     el<HTMLInputElement>("paint-mode").addEventListener("change", (event) => {
@@ -188,13 +182,13 @@ class App {
 
     this.scene.onPick = (row, col) => {
       this.paint(row, col);
-      this.queueRerun();
+      this.markDirty();
     };
 
     el<HTMLButtonElement>("fill-all").addEventListener("click", () => {
       this.cropMap = this.cropMap.map(() => this.brush);
       this.pushLayout();
-      this.queueRerun();
+      this.markDirty();
     });
     el<HTMLButtonElement>("fill-bands").addEventListener("click", () => {
       const bands = this.crops.filter((crop) => crop.mixable).map((crop) => crop.key);
@@ -206,22 +200,23 @@ class App {
         ] as string;
       });
       this.pushLayout();
-      this.queueRerun();
+      this.markDirty();
     });
     el<HTMLButtonElement>("reset-crops").addEventListener("click", () => {
       this.adoptPreset();
       this.pushLayout();
-      this.queueRerun();
+      this.markDirty();
     });
 
     for (const key of ["rows", "cols", "days"] as const) {
       const input = el<HTMLInputElement>(key);
-      // `input` keeps the label live; `change` is what triggers a run, so a
-      // drag across the slider does not fire one simulation per pixel.
+      // `input` keeps the label live and `change` adopts the value; neither
+      // simulates — a drag across the slider would otherwise fire a run per
+      // pixel, and the button is the only thing that starts one.
       input.addEventListener("input", () => this.syncGridLabel());
       input.addEventListener("change", () => {
         this.applyGridSize();
-        this.queueRerun();
+        this.markDirty();
       });
     }
 
@@ -266,7 +261,10 @@ class App {
 
     this.rows = Number(config.rows ?? this.rows) || this.rows;
     this.cols = Number(config.cols ?? this.cols) || this.cols;
-    this.days = Number(config.days ?? this.days) || this.days;
+    // A preset that names a horizon means it: the season is cut short on
+    // purpose.  One that stays silent lets the crops decide instead.
+    const givenDays = config.days;
+    this.daysPinned = givenDays != null;
 
     const laid = config.crop_map;
     this.baseCrop = String(config.crop ?? this.baseCrop);
@@ -287,6 +285,7 @@ class App {
       el<HTMLButtonElement>(id).disabled = !this.canMix;
     }
     el<HTMLInputElement>("paint-mode").disabled = !this.canMix;
+    if (this.daysPinned) this.days = Number(givenDays) || this.days;
     this.renderPalette();
     this.syncGrid();
   }
@@ -296,6 +295,9 @@ class App {
     const cols = Number(el<HTMLInputElement>("cols").value);
     const days = Number(el<HTMLInputElement>("days").value);
     if (!Number.isFinite(rows) || !Number.isFinite(cols) || rows < 1 || cols < 1) return;
+    // Only a horizon the user actually moved pins the run length; dragging rows
+    // or columns leaves it following the crop.
+    if (Number.isFinite(days) && days !== this.days) this.daysPinned = true;
     const from: Grid = { rows: this.rows, cols: this.cols };
     this.cropMap = remapCrops(this.cropMap, from, { rows, cols });
     this.rows = rows;
@@ -319,6 +321,16 @@ class App {
       // 25 000 cell-days, so the largest field the sliders allow is a minute.
       (cells > 2400 ? " · 格数较多，跑一次要十几秒到一分钟" : "");
     this.pushLayout();
+    this.renderDaysHint();
+  }
+
+  /** Say who decided the horizon: the slowest crop, or the user's slider. */
+  private renderDaysHint(): void {
+    const season = this.season();
+    const crop = season.label || "作物";
+    el("days-hint").textContent = this.daysPinned
+      ? `已手动设为 ${this.days} 天 · ${crop}需 ${season.days} 天成熟`
+      : `跟随最长作物：${crop} ${season.days} 天成熟`;
   }
 
   private syncGridLabel(): void {
@@ -330,8 +342,37 @@ class App {
     el("grid-hint").textContent = `${rows} × ${cols} = ${rows * cols} 格（松开后重跑）`;
   }
 
+  /** Days the slowest crop planted needs, and which crop that is. */
+  private season(): { days: number; label: string } {
+    let days = 0;
+    let label = "";
+    for (const key of this.layoutKeys()) {
+      const crop = this.crops.find((item) => item.key === key);
+      if (crop && crop.season_days > days) {
+        days = crop.season_days;
+        label = crop.label;
+      }
+    }
+    return { days: days || this.days, label };
+  }
+
+  /** Keep the horizon on the slowest crop until the user overrides it.
+   *
+   * A bed of lettuce next to tomato runs as long as the tomato does — cutting
+   * it at the lettuce's 60 days would harvest half a crop.
+   */
+  private followCropSeason(): void {
+    if (this.daysPinned) return;
+    const { days } = this.season();
+    if (days === this.days) return;
+    this.days = days;
+    el<HTMLInputElement>("days").value = String(days);
+    el<HTMLOutputElement>("days-out").textContent = String(days);
+  }
+
   /** Push the local layout into the renderer so painting is visible at once. */
   private pushLayout(): void {
+    this.followCropSeason();
     const keys = this.layoutKeys();
     this.scene.setCropPreview(this.cropMap.map((key) => keys.indexOf(key)));
     if (this.channel === CROP_CHANNEL) {
@@ -346,6 +387,9 @@ class App {
       this.paletteSignature = signature;
       this.renderPalette();
     }
+    // Painting changes which crop is the slowest without going through
+    // syncGrid, so the hint is refreshed here as well as there.
+    this.renderDaysHint();
   }
 
   /** Crops planted right now, in first-appearance order.
@@ -369,14 +413,16 @@ class App {
     this.pushLayout();
   }
 
-  private queueRerun(): void {
-    if (this.rerunTimer !== null) window.clearTimeout(this.rerunTimer);
-    // Painting fires per cell; collapsing them into one run keeps a drag from
-    // queueing a dozen sims.
-    this.rerunTimer = window.setTimeout(() => {
-      this.rerunTimer = null;
-      void this.runScenario();
-    }, 450);
+  /** Note that the field on screen belongs to an older configuration.
+
+   * Layout edits still repaint at once — the point is that they no longer
+   * start a simulation by themselves.
+   */
+  private markDirty(): void {
+    el<HTMLButtonElement>("run").classList.add("btn--pending");
+    el("status").textContent = this.bundle
+      ? "配置已改 · 点「运行仿真」重跑"
+      : "待运行 · 点「运行仿真」开始";
   }
 
   private buildConfig(): Record<string, unknown> {
@@ -397,13 +443,9 @@ class App {
   }
 
   private async runScenario(): Promise<void> {
-    // The largest field takes minutes and the engine serialises runs anyway, so
-    // a second request would only queue behind the first and make both late.
-    // Remember that the configuration moved on and re-run once this one lands.
-    if (this.running) {
-      this.rerunQueued = true;
-      return;
-    }
+    // The largest field takes minutes; the button is disabled for the duration,
+    // so this only guards against a second entry point appearing later.
+    if (this.running) return;
     this.running = true;
 
     const runButton = el<HTMLButtonElement>("run");
@@ -422,6 +464,7 @@ class App {
       const bundle = await createConfiguredRun(this.buildConfig());
       this.applyBundle(bundle);
       const seconds = ((performance.now() - started) / 1000).toFixed(1);
+      runButton.classList.remove("btn--pending");
       status.textContent = `就绪 · ${bundle.meta.days} 天 · ${seconds} 秒`;
       overlay.hidden = true;
     } catch (error) {
@@ -434,10 +477,6 @@ class App {
     } finally {
       this.running = false;
       runButton.disabled = false;
-      if (this.rerunQueued) {
-        this.rerunQueued = false;
-        void this.runScenario();
-      }
     }
   }
 
