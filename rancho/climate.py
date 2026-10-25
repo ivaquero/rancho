@@ -48,6 +48,22 @@ CLIMATE_LABELS: Final[dict[ClimateKind, str]] = {
     "tropical": "热带",
 }
 
+#: English climate-band names, parallel to :data:`CLIMATE_LABELS`.
+CLIMATE_LABELS_EN: Final[dict[ClimateKind, str]] = {
+    "temperate": "Temperate",
+    "continental": "Continental",
+    "semi-arid": "Semi-arid",
+    "tropical": "Tropical",
+}
+
+#: Spanish climate-band names, parallel to :data:`CLIMATE_LABELS`.
+CLIMATE_LABELS_ES: Final[dict[ClimateKind, str]] = {
+    "temperate": "Templado",
+    "continental": "Continental",
+    "semi-arid": "Semiárido",
+    "tropical": "Tropical",
+}
+
 
 @dataclass(frozen=True, slots=True)
 class ClimateProfile:
@@ -192,6 +208,8 @@ def generate_weather(
         days=tuple(series),
         source="synthetic",
         label=f"合成气候 · {CLIMATE_LABELS[climate]}",
+        label_en=f"Synthetic · {CLIMATE_LABELS_EN[climate]}",
+        label_es=f"Sintético · {CLIMATE_LABELS_ES[climate]}",
         provider="Rancho 合成气候",
     )
 

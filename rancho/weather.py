@@ -93,6 +93,8 @@ class WeatherSeries:
     source: WeatherSource
     label: str
     provider: str
+    label_en: str = ""
+    label_es: str = ""
     #: Site the series describes.  Synthetic weather has no observation site,
     #: but carrying the farm's own coordinates keeps every bundle comparable.
     latitude: float | None = None
@@ -134,6 +136,8 @@ class WeatherSeries:
         base: dict[str, Any] = {
             "source": self.source,
             "label": self.label,
+            "label_en": self.label_en,
+            "label_es": self.label_es,
             "provider": self.provider,
             "latitude": None if self.latitude is None else round(self.latitude, 4),
             "longitude": None if self.longitude is None else round(self.longitude, 4),
@@ -451,6 +455,8 @@ class OpenMeteoClient:
             days=tuple(series),
             source="open-meteo",
             label="Open-Meteo · ERA5",
+            label_en="Open-Meteo · ERA5",
+            label_es="Open-Meteo · ERA5",
             provider="Open-Meteo",
             latitude=latitude,
             longitude=longitude,

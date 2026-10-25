@@ -7,6 +7,8 @@
 
 id = "wheat"
 label = "小麦"
+label_en = "Wheat"
+label_es = "Trigo"
 species = "Triticum aestivum"
 
 [season]

@@ -6,6 +6,8 @@
 
 id = "tomato"                       # 必须等于文件名，也是 scenario.crop 的取值
 label = "番茄"                       # 界面、报告、账本上的显示名
+label_en = "Tomato"
+label_es = "Tomate"
 species = "Solanum lycopersicum"
 base_temp_c = 10.0                  # 热时间基温 °C，低于此温度不计积温
 

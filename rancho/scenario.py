@@ -60,6 +60,42 @@ STAGE_LABELS: dict[str, str] = {
     "maturity": "成熟",
 }
 
+#: English stage names, parallel to :data:`STAGE_LABELS`.
+STAGE_LABELS_EN: dict[str, str] = {
+    "germination": "Germination",
+    "emergence": "Emergence",
+    "seedling": "Seedling",
+    "tillering": "Tillering",
+    "vegetative": "Vegetative",
+    "stem_extension": "Stem extension",
+    "tasseling": "Tasseling",
+    "silking": "Silking",
+    "anthesis": "Anthesis",
+    "flowering": "Flowering",
+    "fruit_set": "Fruit set",
+    "fruiting": "Fruiting",
+    "grain_fill": "Grain fill",
+    "maturity": "Maturity",
+}
+
+#: Spanish stage names, parallel to :data:`STAGE_LABELS`.
+STAGE_LABELS_ES: dict[str, str] = {
+    "germination": "Germinación",
+    "emergence": "Emergencia",
+    "seedling": "Plántula",
+    "tillering": "Ahijamiento",
+    "vegetative": "Vegetativo",
+    "stem_extension": "Encañado",
+    "tasseling": "Espigado",
+    "silking": "Floración femenina",
+    "anthesis": "Antesis",
+    "flowering": "Floración",
+    "fruit_set": "Cuajado",
+    "fruiting": "Fructificación",
+    "grain_fill": "Llenado de grano",
+    "maturity": "Madurez",
+}
+
 
 @dataclass(frozen=True, slots=True)
 class CropProfile:
@@ -72,6 +108,8 @@ class CropProfile:
     """
 
     label: str
+    label_en: str
+    label_es: str
     species: str
     dry_matter_fraction: float = 1.0
     marketable_fraction: float = 1.0
@@ -87,6 +125,8 @@ class CropProfile:
 CROP_PROFILES: dict[str, CropProfile] = {
     key: CropProfile(
         template.label,
+        template.label_en or template.label,
+        template.label_es or template.label_en or template.label,
         template.species,
         template.product.dry_matter_fraction,
         template.product.marketable_fraction,
@@ -313,7 +353,14 @@ def with_horizon(cfg: ScenarioConfig) -> ScenarioConfig:
 PRESETS: dict[str, dict[str, object]] = {
     "rabi-wheat": {
         "label": "冬小麦 · 常规灌溉",
+        "label_en": "Winter wheat · conventional irrigation",
+        "label_es": "Trigo de invierno · riego convencional",
         "description": "北印度 Rabi 季小麦，缓坡地块，土壤水分低于阈值时自动灌溉。",
+        "description_en": "Rabi-season wheat in North India on a gentle slope; auto-irrigates when soil moisture drops below threshold.",
+        "description_es": (
+            "Trigo de la temporada Rabi en el norte de la India, en ladera suave; "
+            "riega automáticamente cuando la humedad del suelo baja del umbral."
+        ),
         "config": ScenarioConfig(
             name="North Plot",
             rows=26,
@@ -334,7 +381,14 @@ PRESETS: dict[str, dict[str, object]] = {
     },
     "kharif-maize": {
         "label": "夏玉米 · 雨养",
+        "label_en": "Summer maize · rainfed",
+        "label_es": "Maíz de verano · secano",
         "description": "雨季玉米，平地黏壤土，无灌溉，检验降水驱动的生长节律。",
+        "description_en": "Kharif-season maize on flat clay loam, no irrigation — growth driven by the rainfall rhythm.",
+        "description_es": (
+            "Maíz de la temporada Kharif en franco arcilloso llano, sin riego: "
+            "el crecimiento lo marca el ritmo de las lluvias."
+        ),
         "config": ScenarioConfig(
             name="South Plot",
             rows=24,
@@ -354,7 +408,14 @@ PRESETS: dict[str, dict[str, object]] = {
     },
     "semi-arid": {
         "label": "旱区 · 水分胁迫",
+        "label_en": "Arid zone · water stress",
+        "label_es": "Zona árida · estrés hídrico",
         "description": "半干旱沙壤土，灌溉受限，观察胁迫指数与产量损失的空间分布。",
+        "description_en": "Semi-arid sandy loam with limited irrigation; watch the spatial spread of stress and yield loss.",
+        "description_es": (
+            "Franco arenoso semiárido con riego limitado; observe la propagación "
+            "espacial del estrés y la pérdida de rendimiento."
+        ),
         "config": ScenarioConfig(
             name="Dry Plot",
             rows=22,
@@ -379,7 +440,14 @@ PRESETS: dict[str, dict[str, object]] = {
     },
     "disease-front": {
         "label": "病害扩散 · 抗性试验",
+        "label_en": "Disease spread · resistance trial",
+        "label_es": "Propagación de enfermedad · ensayo de resistencia",
         "description": "开启空间病害引擎，病害从地块中心向外扩散，用于评估损失。",
+        "description_en": "Spatial disease engine enabled; infection advances outward from the field centre to assess losses.",
+        "description_es": (
+            "Motor espacial de enfermedades activado; la infección avanza desde el "
+            "centro de la parcela para evaluar las pérdidas."
+        ),
         "config": ScenarioConfig(
             name="Trial Plot",
             rows=24,
@@ -402,8 +470,18 @@ PRESETS: dict[str, dict[str, object]] = {
     },
     "salvador-greenhouse": {
         "label": "萨尔瓦多 · 大棚番茄",
+        "label_en": "El Salvador · greenhouse tomato",
+        "label_es": "El Salvador · tomate de invernadero",
         "description": (
             "萨尔瓦多山地缓坡上的竹架大棚：遮阳网 + 防虫网 + 避雨，滴灌番茄，旱季定植、雨季前收完。"
+        ),
+        "description_en": (
+            "Bamboo-trellis greenhouse on a mountain slope in El Salvador: shade net + insect net + rain shelter, drip-irrigated tomato, planted in the dry season and harvested before the rains."
+        ),
+        "description_es": (
+            "Invernadero de bambú en una ladera de montaña de El Salvador: malla sombra + malla "
+            "antiinsectos + cubierta, tomate con riego por goteo, plantado en estación seca y "
+            "cosechado antes de las lluvias."
         ),
         "config": ScenarioConfig(
             name="Invernadero El Salvador",
@@ -439,8 +517,18 @@ PRESETS: dict[str, dict[str, object]] = {
     },
     "salvador-leafy": {
         "label": "萨尔瓦多 · 大棚叶菜",
+        "label_en": "El Salvador · greenhouse leafy greens",
+        "label_es": "El Salvador · hortalizas de hoja en invernadero",
         "description": (
             "同一棚架下换茬生菜：60 天短周期，全畦滴灌，看高温季节遮阳对冠层温度与蒸腾的调节。"
+        ),
+        "description_en": (
+            "Same structure replanted with lettuce: a short 60-day cycle, full-bed drip, watching how shade moderates canopy temperature and transpiration in the hot season."
+        ),
+        "description_es": (
+            "La misma estructura replantada con lechuga: un ciclo corto de 60 días, goteo en toda "
+            "la cama, observando cómo la sombra modera la temperatura del dosel y la transpiración "
+            "en la estación cálida."
         ),
         "config": ScenarioConfig(
             name="Invernadero Hoja",
@@ -471,8 +559,17 @@ PRESETS: dict[str, dict[str, object]] = {
     },
     "salvador-mosaic": {
         "label": "萨尔瓦多 · 大棚混作",
+        "label_en": "El Salvador · greenhouse mixed cropping",
+        "label_es": "El Salvador · cultivo mixto en invernadero",
         "description": (
             "同一座棚里按畦分作物：番茄 | 黄瓜 | 生菜三带并列，看跨畦争水争氮时各自的产量与胁迫。"
+        ),
+        "description_en": (
+            "One house split by bed into tomato | cucumber | lettuce bands; watch each crop's yield and stress as they compete for water and nitrogen across beds."
+        ),
+        "description_es": (
+            "Una sola casa dividida por camas en bandas de tomate | pepino | lechuga; observe el "
+            "rendimiento y el estrés de cada cultivo al competir por agua y nitrógeno entre camas."
         ),
         "config": ScenarioConfig(
             name="Invernadero Mixto",
@@ -510,9 +607,19 @@ PRESETS: dict[str, dict[str, object]] = {
     },
     "salvador-observed": {
         "label": "萨尔瓦多 · 大棚番茄（实测气象）",
+        "label_en": "El Salvador · greenhouse tomato (observed weather)",
+        "label_es": "El Salvador · tomate de invernadero (clima observado)",
         "description": (
             "同一棚架与农艺参数，气象改用 Open-Meteo 的 2025/26 实测序列："
             "看真实旱季辐射与昼夜温差下的表现，断网时自动退回合成气候并标注。"
+        ),
+        "description_en": (
+            "Same structure and agronomy, but weather swapped for the 2025/26 Open-Meteo observed series: performance under real dry-season radiation and diurnal range, auto-falling back to synthetic and flagging when offline."
+        ),
+        "description_es": (
+            "Misma estructura y agronomía, pero con el clima cambiado por la serie observada "
+            "2025/26 de Open-Meteo: comportamiento bajo la radiación real de la estación seca y la "
+            "amplitud térmica diaria; sin conexión vuelve al clima sintético y lo indica."
         ),
         "config": ScenarioConfig(
             name="Invernadero Observado",

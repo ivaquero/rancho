@@ -20,6 +20,8 @@ from rancho.crops import STAGE_ORDER
 from rancho.scenario import (
     CROP_PROFILES,
     STAGE_LABELS,
+    STAGE_LABELS_EN,
+    STAGE_LABELS_ES,
     ScenarioConfig,
     crop_grid,
     crop_indices,
@@ -36,17 +38,68 @@ class ChannelSpec:
     label: str
     unit: str
     kind: str = "continuous"
+    label_en: str = ""
+    label_es: str = ""
 
 
 CHANNELS: Final[tuple[ChannelSpec, ...]] = (
-    ChannelSpec("lai", "叶面积指数", "m²/m²"),
-    ChannelSpec("biomass", "单株生物量", "g"),
-    ChannelSpec("height", "株高", "cm"),
-    ChannelSpec("stress", "胁迫指数", "0–1"),
-    ChannelSpec("moisture", "表层含水率", "%"),
-    ChannelSpec("nitrogen", "表层氮素", "kg/ha"),
-    ChannelSpec("disease", "病害严重度", "0–1"),
-    ChannelSpec("stage", "生育阶段", "阶段", kind="stage"),
+    ChannelSpec(
+        name="lai",
+        label="叶面积指数",
+        unit="m²/m²",
+        label_en="Leaf area index",
+        label_es="Índice de área foliar",
+    ),
+    ChannelSpec(
+        name="biomass",
+        label="单株生物量",
+        unit="g",
+        label_en="Plant biomass",
+        label_es="Biomasa por planta",
+    ),
+    ChannelSpec(
+        name="height",
+        label="株高",
+        unit="cm",
+        label_en="Plant height",
+        label_es="Altura de planta",
+    ),
+    ChannelSpec(
+        name="stress",
+        label="胁迫指数",
+        unit="0–1",
+        label_en="Stress index",
+        label_es="Índice de estrés",
+    ),
+    ChannelSpec(
+        name="moisture",
+        label="表层含水率",
+        unit="%",
+        label_en="Surface moisture",
+        label_es="Humedad superficial",
+    ),
+    ChannelSpec(
+        name="nitrogen",
+        label="表层氮素",
+        unit="kg/ha",
+        label_en="Surface nitrogen",
+        label_es="Nitrógeno superficial",
+    ),
+    ChannelSpec(
+        name="disease",
+        label="病害严重度",
+        unit="0–1",
+        label_en="Disease severity",
+        label_es="Severidad de enfermedad",
+    ),
+    ChannelSpec(
+        name="stage",
+        label="生育阶段",
+        unit="阶段",
+        label_en="Growth stage",
+        label_es="Etapa fenológica",
+        kind="stage",
+    ),
 )
 
 _QUANT_MAX: Final = 255.0
@@ -184,6 +237,8 @@ def _crop_yields(
             {
                 "key": key,
                 "label": profile.label,
+                "label_en": profile.label_en,
+                "label_es": profile.label_es,
                 "cells": count,
                 "share": round(count / max(1, cells), 4),
                 "harvest_index": round(index, 3),
@@ -330,6 +385,8 @@ def build_bundle(
             "days": days,
             "crop": cfg.crop,
             "crop_label": CROP_PROFILES[cfg.crop].label,
+            "crop_label_en": CROP_PROFILES[cfg.crop].label_en,
+            "crop_label_es": CROP_PROFILES[cfg.crop].label_es,
             "variety": cfg.variety,
             "sowing_doy": cfg.sowing_doy,
             "soil": cfg.soil,
@@ -351,7 +408,15 @@ def build_bundle(
             "mosaic": len(crop_keys(cfg)) > 1,
             # Every crop planted in this run, in first-appearance order — the
             # client indexes `grid.crop_index` into this list.
-            "crops": [{"key": key, "label": CROP_PROFILES[key].label} for key in crop_keys(cfg)],
+            "crops": [
+                {
+                    "key": key,
+                    "label": CROP_PROFILES[key].label,
+                    "label_en": CROP_PROFILES[key].label_en,
+                    "label_es": CROP_PROFILES[key].label_es,
+                }
+                for key in crop_keys(cfg)
+            ],
         },
         "grid": {
             "rows": rows,
@@ -366,13 +431,23 @@ def build_bundle(
         "channels": {
             spec.name: {
                 "label": spec.label,
+                "label_en": spec.label_en,
+                "label_es": spec.label_es,
                 "unit": spec.unit,
                 "kind": spec.kind,
                 "domain": domains[spec.name],
             }
             for spec in CHANNELS
         },
-        "stages": [{"key": name, "label": STAGE_LABELS.get(name, name)} for name in stages],
+        "stages": [
+            {
+                "key": name,
+                "label": STAGE_LABELS.get(name, name),
+                "label_en": STAGE_LABELS_EN.get(name, name),
+                "label_es": STAGE_LABELS_ES.get(name, name),
+            }
+            for name in stages
+        ],
         "series": series,
         "frames": frames,
         "yield": {

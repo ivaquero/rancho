@@ -185,6 +185,11 @@ class CropTemplate(_Strict):
 
     id: str = Field(min_length=1, max_length=32, pattern=r"^[a-z][a-z0-9_-]*$")
     label: str = Field(min_length=1, max_length=32)
+    #: English display name for the UI, reports and ledgers.  Optional so older
+    #: single-language templates still load; the client falls back to ``label``.
+    label_en: str | None = None
+    #: Spanish display name, same fallback rules as ``label_en``.
+    label_es: str | None = None
     species: str = Field(min_length=1, max_length=64)
     #: Phenology, canopy and allometry.  All four go together or not at all:
     #: without them CropForge's own plugin models the crop.

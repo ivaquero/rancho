@@ -5,6 +5,8 @@
 
 id = "maize"
 label = "玉米"
+label_en = "Maize"
+label_es = "Maíz"
 species = "Zea mays"
 
 [season]

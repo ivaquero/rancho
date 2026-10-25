@@ -4,6 +4,8 @@
 
 id = "lettuce"
 label = "生菜"
+label_en = "Lettuce"
+label_es = "Lechuga"
 species = "Lactuca sativa"
 base_temp_c = 4.0                   # 冷凉作物，4 °C 起算积温
 

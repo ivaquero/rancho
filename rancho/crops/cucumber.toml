@@ -5,6 +5,8 @@
 
 id = "cucumber"
 label = "黄瓜"
+label_en = "Cucumber"
+label_es = "Pepino"
 species = "Cucumis sativus"
 base_temp_c = 12.0                  # 黄瓜喜温，基温比番茄高 2 °C
 

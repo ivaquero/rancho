@@ -4,6 +4,18 @@ import { createConfiguredRun, health, listCrops, listLimits, listPresets } from 
 import { TimelineChart } from "./chart";
 import { CROP_SWATCHES, stageColor, stageCss, rampCss, rampFor } from "./palette";
 import { CROP_CHANNEL, FieldScene, type HoverInfo } from "./scene";
+import {
+  applyDataI18n,
+  dn,
+  dnd,
+  getLang,
+  langs,
+  onLangChange,
+  setLang,
+  t,
+  tOpt,
+  type Lang,
+} from "./i18n";
 import { decodeChannel, type Bundle, type CropOption, type Limits, type Preset } from "./types";
 
 const CHANNEL_ORDER = [
@@ -17,8 +29,6 @@ const CHANNEL_ORDER = [
   "disease",
   "stage",
 ];
-
-const CHANNEL_LABELS: Record<string, string> = { [CROP_CHANNEL]: "作物布局" };
 
 const DATE_ORIGIN = Date.UTC(2026, 0, 1);
 
@@ -36,7 +46,9 @@ function format(value: number, digits = 1): string {
 
 function dateForDoy(doy: number): string {
   const date = new Date(DATE_ORIGIN + (doy - 1) * 86_400_000);
-  return `${date.getUTCMonth() + 1} 月 ${date.getUTCDate()} 日`;
+  const month = date.getUTCMonth() + 1;
+  const day = date.getUTCDate();
+  return t("date.format", [month, day]);
 }
 
 interface Grid {
@@ -88,6 +100,16 @@ class App {
   private paletteSignature = "";
   private running = false;
   private readonly channelBuffers = new Map<string, Float32Array>();
+  /** Status line, kept separately so a language flip can re-render it. */
+  private statusKind:
+    | "connecting"
+    | "noBackend"
+    | "connected"
+    | "dirty"
+    | "running"
+    | "ready"
+    | "failed" = "connecting";
+  private statusParams: Array<string | number> = [];
 
   constructor() {
     this.scene = new FieldScene(el<HTMLCanvasElement>("stage"));
@@ -103,24 +125,23 @@ class App {
   }
 
   private async bootstrap(): Promise<void> {
-    const status = el("status");
     const runButton = el<HTMLButtonElement>("run");
     const overlay = el("overlay");
     const overlayText = el("overlay-text");
 
     try {
       const info = await health();
-      status.textContent = `服务已连接 · v${info.version}`;
+      this.setStatus("connected", [info.version]);
     } catch {
-      status.textContent = "未连接后端（请先运行 rancho serve）";
-      overlayText.textContent = "无法连接仿真服务。请在项目根目录执行 rancho serve 后刷新。";
+      this.setStatus("noBackend");
+      overlayText.textContent = t("overlay.noBackend");
       return;
     }
 
     try {
       this.presets = await listPresets();
     } catch (error) {
-      overlayText.textContent = `读取场景失败：${String(error)}`;
+      overlayText.textContent = t("overlay.presetsFail", [String(error)]);
       return;
     }
 
@@ -129,8 +150,8 @@ class App {
     for (const preset of this.presets) {
       const option = document.createElement("option");
       option.value = preset.id;
-      option.textContent = preset.label;
-      option.title = preset.description;
+      option.textContent = dn(preset);
+      option.title = dnd(preset);
       select.append(option);
     }
 
@@ -163,8 +184,96 @@ class App {
     // field and a configuration, not a progress cover over an empty canvas.
     overlay.hidden = true;
     runButton.disabled = false;
+
+    // Wire the language switch and paint the UI in the stored language.  The
+    // options come from the locale registry, so adding one needs no HTML edit.
+    const langSelect = el<HTMLSelectElement>("lang");
+    langSelect.innerHTML = "";
+    for (const { code, label } of langs()) {
+      const option = document.createElement("option");
+      option.value = code;
+      option.textContent = label;
+      langSelect.append(option);
+    }
+    langSelect.value = getLang();
+    langSelect.addEventListener("change", (event) => {
+      setLang((event.target as HTMLSelectElement).value as Lang);
+    });
+    applyDataI18n();
+    onLangChange(() => this.applyLanguage());
     this.markDirty();
   }
+
+  // --- i18n value resolvers -------------------------------------------------
+
+  /** Localised crop name from a `/api/crops` option. */
+  private cropName(crop: CropOption): string {
+    return dn(crop);
+  }
+
+  /** Localised crop name from a bundle `meta.crops` entry. */
+  private metaCropName(entry: {
+    label: string;
+    label_en?: string | null;
+    label_es?: string | null;
+  }): string {
+    return dn(entry);
+  }
+
+  /** Localised phenology-stage name. */
+  private stageName(stage: {
+    label: string;
+    label_en?: string | null;
+    label_es?: string | null;
+  }): string {
+    return dn(stage);
+  }
+
+  /** Localised name of a server channel, by key into the current bundle. */
+  private channelName(name: string): string {
+    const meta = this.bundle?.channels[name];
+    return meta ? dn(meta) : name;
+  }
+
+  /** Localised soil / terrain name, falling back to the server's raw value. */
+  private enumName(group: "soil" | "terrain", value: string): string {
+    return tOpt(`${group}.${value}`) ?? value;
+  }
+
+  private setStatus(kind: typeof this.statusKind, params: Array<string | number> = []): void {
+    this.statusKind = kind;
+    this.statusParams = params;
+    this.renderStatus();
+  }
+
+  private renderStatus(): void {
+    const key =
+      this.statusKind === "dirty"
+        ? this.bundle
+          ? "status.dirtyHasBundle"
+          : "status.dirtyNoBundle"
+        : this.statusKind;
+    el("status").textContent = t(key, this.statusParams);
+  }
+
+  /** Re-render every language-dependent string after the UI language flips. */
+  private applyLanguage(): void {
+    applyDataI18n();
+    this.renderStatus();
+    this.renderChannels();
+    this.renderPalette();
+    this.renderCropMix();
+    if (this.bundle) {
+      this.renderYield();
+      this.renderFieldInfo();
+      this.renderLegend();
+      this.updateMetrics();
+      this.chart.refresh();
+      this.setDay(this.index);
+    }
+  }
+
+  // --------------------------------------------------------------------------
 
   private bindControls(): void {
     el<HTMLButtonElement>("run").addEventListener("click", () => void this.runScenario());
@@ -316,10 +425,10 @@ class App {
     }
     const cells = this.rows * this.cols;
     el("grid-hint").textContent =
-      `${this.rows} × ${this.cols} = ${cells} 格 · ${(cells / 10_000).toFixed(3)} ha` +
+      `${this.rows} × ${this.cols} = ${cells} ${t("unit.cells")} · ${(cells / 10_000).toFixed(3)} ha` +
       // Measured on the reference machine: a run costs roughly one second per
       // 25 000 cell-days, so the largest field the sliders allow is a minute.
-      (cells > 2400 ? " · 格数较多，跑一次要十几秒到一分钟" : "");
+      (cells > 2400 ? t("grid.hintLarge") : "");
     this.pushLayout();
     this.renderDaysHint();
   }
@@ -327,10 +436,10 @@ class App {
   /** Say who decided the horizon: the slowest crop, or the user's slider. */
   private renderDaysHint(): void {
     const season = this.season();
-    const crop = season.label || "作物";
+    const crop = season.label || t("crop.fallback");
     el("days-hint").textContent = this.daysPinned
-      ? `已手动设为 ${this.days} 天 · ${crop}需 ${season.days} 天成熟`
-      : `跟随最长作物：${crop} ${season.days} 天成熟`;
+      ? t("days.manual", [this.days, crop, season.days])
+      : t("days.follow", [crop, season.days]);
   }
 
   private syncGridLabel(): void {
@@ -339,7 +448,7 @@ class App {
     }
     const rows = Number(el<HTMLInputElement>("rows").value) || 0;
     const cols = Number(el<HTMLInputElement>("cols").value) || 0;
-    el("grid-hint").textContent = `${rows} × ${cols} = ${rows * cols} 格（松开后重跑）`;
+    el("grid-hint").textContent = `${rows} × ${cols} = ${rows * cols} ${t("unit.cells")}${t("grid.hintDrag")}`;
   }
 
   /** Days the slowest crop planted needs, and which crop that is. */
@@ -350,7 +459,7 @@ class App {
       const crop = this.crops.find((item) => item.key === key);
       if (crop && crop.season_days > days) {
         days = crop.season_days;
-        label = crop.label;
+        label = this.cropName(crop);
       }
     }
     return { days: days || this.days, label };
@@ -420,9 +529,7 @@ class App {
    */
   private markDirty(): void {
     el<HTMLButtonElement>("run").classList.add("btn--pending");
-    el("status").textContent = this.bundle
-      ? "配置已改 · 点「运行仿真」重跑"
-      : "待运行 · 点「运行仿真」开始";
+    this.setStatus("dirty");
   }
 
   private buildConfig(): Record<string, unknown> {
@@ -451,12 +558,11 @@ class App {
     const runButton = el<HTMLButtonElement>("run");
     const overlay = el("overlay");
     const overlayText = el("overlay-text");
-    const status = el("status");
 
     runButton.disabled = true;
     overlay.hidden = false;
-    overlayText.textContent = `正在运行仿真：${this.rows} × ${this.cols} 格 · ${this.days} 天…`;
-    status.textContent = "仿真运行中…";
+    overlayText.textContent = t("run.overlay", [this.rows, this.cols, this.days]);
+    this.setStatus("running");
     this.pause();
 
     const started = performance.now();
@@ -465,11 +571,11 @@ class App {
       this.applyBundle(bundle);
       const seconds = ((performance.now() - started) / 1000).toFixed(1);
       runButton.classList.remove("btn--pending");
-      status.textContent = `就绪 · ${bundle.meta.days} 天 · ${seconds} 秒`;
+      this.setStatus("ready", [bundle.meta.days, seconds]);
       overlay.hidden = true;
     } catch (error) {
-      status.textContent = "仿真失败";
-      overlayText.textContent = `仿真失败：${String(error)}`;
+      this.setStatus("failed");
+      overlayText.textContent = t("overlay.failed", [String(error)]);
       // Leaving the cover up hides a field that is still perfectly readable,
       // and the timeline would stay paused for no reason.
       overlay.hidden = true;
@@ -510,7 +616,8 @@ class App {
     if (!bundle) return;
     const names = CHANNEL_ORDER.filter((name) => name === CROP_CHANNEL || name in bundle.channels);
     for (const name of names) {
-      const label = CHANNEL_LABELS[name] ?? bundle.channels[name]?.label ?? name;
+      const label =
+        name === CROP_CHANNEL ? t("channel.cropLayout") : this.channelName(name);
       const button = document.createElement("button");
       button.type = "button";
       button.className = "chip";
@@ -529,8 +636,8 @@ class App {
     const mixable = this.crops.filter((crop) => crop.mixable);
     const allowed = this.canMix;
     el("layout-hint").textContent = allowed
-      ? "点击或拖拽地块给格子换作物，改动后自动重跑。"
-      : "该场景的作物物候由 CropForge 插件整块推进，不支持逐格混作。";
+      ? t("layout.enabledHint")
+      : t("layout.disabledHint");
     if (!mixable.length) return;
     // The field colours a cell by its index in *this* layout, not by its index
     // among all mixable crops — otherwise the chip for lettuce is yellow while
@@ -554,7 +661,7 @@ class App {
       const swatch = document.createElement("i");
       swatch.className = "swatch";
       swatch.style.background = CROP_SWATCHES[swatchIndex % CROP_SWATCHES.length] as string;
-      button.append(swatch, document.createTextNode(crop.label));
+      button.append(swatch, document.createTextNode(this.cropName(crop)));
       button.addEventListener("click", () => {
         this.brush = crop.key;
         this.renderPalette();
@@ -572,7 +679,7 @@ class App {
     for (const key of this.cropMap) counts.set(key, (counts.get(key) ?? 0) + 1);
     for (const [key, count] of counts) {
       const meta = this.crops.find((crop) => crop.key === key);
-      const label = meta?.label ?? key;
+      const label = meta ? this.cropName(meta) : key;
       const dt = document.createElement("dt");
       dt.textContent = label;
       const dd = document.createElement("dd");
@@ -587,14 +694,20 @@ class App {
     list.innerHTML = "";
     if (!bundle) return;
     const rows: [string, string][] = [
-      ["合计", `${bundle.yield.t_per_ha.toFixed(2)} t/ha`],
-      ["总产", `${bundle.yield.total_kg.toFixed(0)} kg`],
-      ["生物量", `${bundle.yield.biomass_t_per_ha.toFixed(2)} t/ha`],
-      ["收获指数", bundle.yield.harvest_index.toFixed(2)],
+      [t("yield.total"), `${bundle.yield.t_per_ha.toFixed(2)} t/ha`],
+      [t("yield.gross"), `${bundle.yield.total_kg.toFixed(0)} kg`],
+      [t("yield.biomass"), `${bundle.yield.biomass_t_per_ha.toFixed(2)} t/ha`],
+      [t("yield.harvestIndex"), bundle.yield.harvest_index.toFixed(2)],
     ];
     for (const row of bundle.yield.crops ?? []) {
-      rows.push([row.label, `${row.t_per_ha.toFixed(2)} t/ha · ${row.cells} 格`]);
-      rows.push(["└ 产量", `${row.total_kg.toFixed(0)} kg · ${(row.share * 100).toFixed(0)}%`]);
+      rows.push([
+        this.metaCropName(row),
+        `${row.t_per_ha.toFixed(2)} t/ha · ${row.cells} ${t("unit.cells")}`,
+      ]);
+      rows.push([
+        t("yield.perCrop"),
+        `${row.total_kg.toFixed(0)} kg · ${(row.share * 100).toFixed(0)}%`,
+      ]);
     }
     for (const [key, value] of rows) {
       const dt = document.createElement("dt");
@@ -641,12 +754,12 @@ class App {
         item.className = "legend__crop";
         const dot = document.createElement("i");
         dot.style.background = CROP_SWATCHES[index % CROP_SWATCHES.length] as string;
-        item.append(dot, document.createTextNode(meta2?.label ?? key));
+        item.append(dot, document.createTextNode(meta2 ? this.cropName(meta2) : key));
         swatches.append(item);
       });
       low.textContent = "";
       high.textContent = "";
-      unit.textContent = `${keys.length} 种作物`;
+      unit.textContent = t("legend.crops", [keys.length]);
       return;
     }
 
@@ -654,9 +767,9 @@ class App {
     swatches.hidden = true;
     if (meta.kind === "stage") {
       bar.style.background = stageCss();
-      low.textContent = bundle.stages[0]?.label ?? "—";
-      high.textContent = bundle.stages.at(-1)?.label ?? "—";
-      unit.textContent = `${bundle.stages.length} 个阶段`;
+      low.textContent = bundle.stages[0] ? this.stageName(bundle.stages[0]) : "—";
+      high.textContent = bundle.stages.at(-1) ? this.stageName(bundle.stages.at(-1)!) : "—";
+      unit.textContent = t("legend.stages", [bundle.stages.length]);
       return;
     }
     bar.style.background = rampCss(rampFor(this.channel));
@@ -671,48 +784,53 @@ class App {
     list.innerHTML = "";
     if (!bundle) return;
     const meta = bundle.meta;
-    const terrain: Record<string, string> = {
-      flat: "平地",
-      slope: "缓坡",
-      undulating: "起伏",
-    };
-    const soil: Record<string, string> = {
-      loam: "壤土",
-      clay: "黏土",
-      sandy: "沙壤",
-      andisol: "安山土",
-    };
     const planted = this.layoutKeys().length;
+    const localCrop = this.crops.find((crop) => crop.key === this.cropMap[0]);
     const cropLabel =
       planted > 1
-        ? `${planted} 种混作`
-        : (this.crops.find((crop) => crop.key === this.cropMap[0])?.label ??
-          meta.crop_label ??
-          meta.crop);
+        ? t("field.mixed", [planted])
+        : (localCrop
+          ? this.cropName(localCrop)
+          : meta.crop_label
+            ? dn({
+                label: meta.crop_label,
+                label_en: meta.crop_label_en,
+                label_es: meta.crop_label_es,
+              })
+            : meta.crop);
     const rows: [string, string][] = [
-      ["地块", `${meta.rows} × ${meta.cols} 格`],
-      ["面积", `${meta.area_ha.toFixed(3)} ha`],
-      ["作物", cropLabel],
-      ["品种", meta.variety],
-      ["天数", `${meta.days} 天`],
-      ["立地", `${soil[meta.soil] ?? meta.soil} · ${terrain[meta.terrain] ?? meta.terrain}`],
-      ["密度", `${meta.plants_per_m2.toFixed(0)} 株/m²`],
+      [t("field.field"), `${meta.rows} × ${meta.cols} ${t("unit.cells")}`],
+      [t("field.area"), `${meta.area_ha.toFixed(3)} ha`],
+      [t("field.crop"), cropLabel],
+      [t("field.variety"), meta.variety],
+      [t("field.days"), `${meta.days} ${t("unit.days")}`],
       [
-        "灌溉",
-        meta.irrigation
-          ? `定值 ${meta.irrigation_mm} mm · 覆盖 ${Math.round(meta.irrigation_coverage * 100)}%`
-          : "雨养",
+        t("field.site"),
+        `${this.enumName("soil", meta.soil)} · ${this.enumName("terrain", meta.terrain)}`,
       ],
-      ["施氮", `${meta.fertiliser_kg_ha} kg/ha`],
+      [t("field.density"), `${meta.plants_per_m2.toFixed(0)} ${t("unit.density")}`],
+      [
+        t("field.irrigation"),
+        meta.irrigation
+          ? t("field.irrigDrip", [
+              meta.irrigation_mm,
+              Math.round(meta.irrigation_coverage * 100),
+            ])
+          : t("field.irrigRainfed"),
+      ],
+      [t("field.fert"), `${meta.fertiliser_kg_ha} kg/ha`],
     ];
     if (meta.protected) {
       const transmission = Math.round((meta.cover_transmission ?? 1) * 100);
-      rows.splice(4, 0, ["设施", `避雨遮阳 · 透光 ${transmission}%`]);
+      rows.splice(4, 0, [t("field.shelter"), t("field.shelterVal", [transmission])]);
     }
     if (meta.weather) {
       const weather = meta.weather;
-      const tag = weather.source === "open-meteo" ? "实测" : "合成";
-      rows.splice(4, 0, ["气象", `${weather.label}（${tag}）`]);
+      const tag =
+        weather.source === "open-meteo"
+          ? t("field.weatherObserved")
+          : t("field.weatherSynthetic");
+      rows.splice(4, 0, [t("field.weather"), `${dn(weather)}（${tag}）`]);
     }
     for (const [key, value] of rows) {
       const dt = document.createElement("dt");
@@ -736,7 +854,7 @@ class App {
 
     const frame = bundle.frames[this.index];
     const point = bundle.series[this.index];
-    el("day-label").textContent = `第 ${frame.day} 天`;
+    el("day-label").textContent = t("day.label", [frame.day]);
     el("date-label").textContent = dateForDoy(frame.doy);
     this.updateMetrics(point);
   }
@@ -754,24 +872,25 @@ class App {
       const mix = new Map<string, number>();
       for (const key of this.cropMap) mix.set(key, (mix.get(key) ?? 0) + 1);
       for (const [key, count] of mix) {
-        const label = this.crops.find((crop) => crop.key === key)?.label ?? key;
+        const crop = this.crops.find((crop) => crop.key === key);
+        const label = crop ? this.cropName(crop) : key;
         rows.push([label, `${((count / Math.max(1, this.cropMap.length)) * 100).toFixed(0)}%`]);
       }
     } else {
       const mean = values.reduce((sum, value) => sum + value, 0) / Math.max(1, values.length);
       const min = values.length ? Math.min(...values) : 0;
       const max = values.length ? Math.max(...values) : 0;
-      rows.push([meta.label, `${format(mean, 2)} ${meta.unit}`]);
-      rows.push(["空间范围", `${format(min, 2)} – ${format(max, 2)}`]);
+      rows.push([this.channelName(this.channel), `${format(mean, 2)} ${meta.unit}`]);
+      rows.push([t("metric.spatial"), `${format(min, 2)} – ${format(max, 2)}`]);
     }
     rows.push(
-      ["生物量", `${format(point.biomass, 1)} g/株`],
-      ["叶面积", format(point.lai, 2)],
-      ["含水率", `${format(point.moisture, 1)} %`],
-      ["胁迫指数", format(point.stress, 2)],
-      ["气温", `${format(point.tmean, 1)} °C`],
-      ["降水", `${format(point.rain, 1)} mm`],
-      ["灌溉", point.irrigation > 0 ? `${format(point.irrigation, 1)} mm` : "—"],
+      [t("metric.biomass"), `${format(point.biomass, 1)} ${t("unit.perPlant")}`],
+      [t("metric.lai"), format(point.lai, 2)],
+      [t("metric.moisture"), `${format(point.moisture, 1)} %`],
+      [t("metric.stress"), format(point.stress, 2)],
+      [t("metric.temp"), `${format(point.tmean, 1)} °C`],
+      [t("metric.rain"), `${format(point.rain, 1)} mm`],
+      [t("metric.irrig"), point.irrigation > 0 ? `${format(point.irrigation, 1)} mm` : t("na")],
     );
 
     for (const [key, value] of rows) {
@@ -808,23 +927,25 @@ class App {
     }
     const index = info.row * bundle.grid.cols + info.col;
     const lines: string[] = [
-      `第 ${bundle.frames[this.index].day} 天 · 行 ${info.row + 1} / 列 ${info.col + 1}`,
+      t("tooltip.cell", [bundle.frames[this.index].day, info.row + 1, info.col + 1]),
     ];
     const planted = this.cropMap[info.row * this.cols + info.col];
     if (planted) {
-      const label = this.crops.find((crop) => crop.key === planted)?.label ?? planted;
-      lines.push(`作物 ${label}`);
+      const crop = this.crops.find((crop) => crop.key === planted);
+      const label = crop ? this.cropName(crop) : planted;
+      lines.push(`${t("tooltip.crop")} ${label}`);
     }
     for (const name of ["lai", "biomass", "moisture", "nitrogen", "stress", "disease"]) {
       const values = this.cellValues(name);
       const meta = bundle.channels[name];
       if (!meta) continue;
-      lines.push(`${meta.label} ${format(values[index], 2)} ${meta.unit}`);
+      lines.push(`${this.channelName(name)} ${format(values[index], 2)} ${meta.unit}`);
     }
     const stage = this.cellValues("stage")[index];
     if (Number.isFinite(stage)) {
-      const label = bundle.stages[Math.round(stage)]?.label;
-      if (label) lines.push(`阶段 ${label}`);
+      const stageMeta = bundle.stages[Math.round(stage)];
+      const label = stageMeta ? this.stageName(stageMeta) : undefined;
+      if (label) lines.push(`${t("tooltip.stage")} ${label}`);
     }
     const dot = stageColor(this.cellValues("stage")[index] ?? 0);
     const tone = `rgb(${Math.round(dot[0] * 255)} ${Math.round(dot[1] * 255)} ${Math.round(dot[2] * 255)})`;

@@ -1,10 +1,12 @@
 import p5 from "p5";
 
+import { t } from "./i18n";
 import type { Bundle, SeriesPoint } from "./types";
 
 interface Row {
   key: keyof SeriesPoint;
-  label: string;
+  /** i18n key for the left-hand row label. */
+  i18n: string;
   unit: string;
   color: string;
   mode: "line" | "bar";
@@ -13,10 +15,10 @@ interface Row {
 }
 
 const ROWS: Row[] = [
-  { key: "lai", label: "LAI", unit: "", color: "#a4d96c", mode: "line", domain: [0, 3] },
-  { key: "moisture", label: "含水率", unit: "%", color: "#6fbfd8", mode: "line" },
-  { key: "stress", label: "胁迫", unit: "", color: "#e8b04b", mode: "line", domain: [0, 1] },
-  { key: "rain", label: "降水", unit: "mm", color: "#7fb2d8", mode: "bar" },
+  { key: "lai", i18n: "chart.lai", unit: "", color: "#a4d96c", mode: "line", domain: [0, 3] },
+  { key: "moisture", i18n: "chart.moisture", unit: "%", color: "#6fbfd8", mode: "line" },
+  { key: "stress", i18n: "chart.stress", unit: "", color: "#e8b04b", mode: "line", domain: [0, 1] },
+  { key: "rain", i18n: "chart.rain", unit: "mm", color: "#7fb2d8", mode: "bar" },
 ];
 
 const PADDING = { left: 48, right: 10, top: 8, bottom: 16 };
@@ -84,6 +86,11 @@ export class TimelineChart {
     const width = this.p.width || 280;
     const height = ROWS.length * (ROW_HEIGHT + ROW_GAP) + PADDING.top + PADDING.bottom;
     this.p.resizeCanvas(width, height);
+    this.p.redraw();
+  }
+
+  /** Redraw with no data change — used when the UI language flips. */
+  refresh(): void {
     this.p.redraw();
   }
 
@@ -169,7 +176,7 @@ export class TimelineChart {
 
       instance.fill(140, 160, 148);
       instance.textAlign(instance.RIGHT, instance.CENTER);
-      instance.text(row.label, PADDING.left - 8, top + ROW_HEIGHT / 2);
+      instance.text(t(row.i18n), PADDING.left - 8, top + ROW_HEIGHT / 2);
       instance.textAlign(instance.RIGHT, instance.TOP);
       instance.fill(110, 130, 118);
       instance.text(
@@ -202,9 +209,9 @@ export class TimelineChart {
     // x axis labels
     instance.fill(95, 115, 103);
     instance.textAlign(instance.LEFT, instance.BOTTOM);
-    instance.text("第 1 天", PADDING.left, instance.height - 3);
+    instance.text(t("chart.dayFirst"), PADDING.left, instance.height - 3);
     instance.textAlign(instance.RIGHT, instance.BOTTOM);
-    instance.text(`第 ${count} 天`, instance.width - PADDING.right, instance.height - 3);
+    instance.text(t("chart.dayLast", [count]), instance.width - PADDING.right, instance.height - 3);
     instance.pop();
   }
 }
