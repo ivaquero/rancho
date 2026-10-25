@@ -17,6 +17,8 @@ export const zh = {
   // --- top bar -------------------------------------------------------------
   "field.scenario": "场景",
   "btn.run": "运行仿真",
+  "btn.play": "播放",
+  "btn.pause": "暂停",
   "status.connecting": "正在连接服务…",
   "status.connected": "服务已连接 · v{0}",
   "status.noBackend": "未连接后端（请先运行 rancho serve）",
@@ -128,6 +130,7 @@ export const zh = {
   // --- bottom bar ----------------------------------------------------------
   "chart.hint": "拖动时间轴或点击曲线查看当日",
   "speed.label": "速度",
+  "day.initial": "第 1 天",
   "speed.slow": "慢",
   "speed.normal": "常速",
   "speed.fast": "快",

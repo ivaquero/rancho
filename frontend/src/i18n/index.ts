@@ -160,10 +160,28 @@ export function dnd(source: {
   return pickVariant(source as Variants, "description") ?? source.description;
 }
 
-/** Refresh every `data-i18n` element under `root` from the active language. */
+/** Which attribute each `data-i18n-*` marker writes to.
+ *
+ * `data-i18n` covers element text; the rest exist for copy that lives in
+ * attributes — icon-only buttons carry their name in `aria-label`, for one.
+ * Adding an entry is all it takes to localise another attribute.
+ */
+const ATTR_KEYS = {
+  aria: "aria-label",
+  title: "title",
+  placeholder: "placeholder",
+} as const;
+
+/** Refresh every `data-i18n*` element under `root` from the active language. */
 export function applyDataI18n(root: ParentNode = document): void {
   root.querySelectorAll<HTMLElement>("[data-i18n]").forEach((node) => {
     const key = node.getAttribute("data-i18n");
     if (key) node.textContent = t(key);
   });
+  for (const [suffix, attribute] of Object.entries(ATTR_KEYS)) {
+    root.querySelectorAll<HTMLElement>(`[data-i18n-${suffix}]`).forEach((node) => {
+      const key = node.getAttribute(`data-i18n-${suffix}`);
+      if (key) node.setAttribute(attribute, t(key));
+    });
+  }
 }

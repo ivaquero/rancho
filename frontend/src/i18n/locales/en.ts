@@ -15,6 +15,8 @@ export const en: Strings = {
   // --- top bar -------------------------------------------------------------
   "field.scenario": "Scenario",
   "btn.run": "Run simulation",
+  "btn.play": "Play",
+  "btn.pause": "Pause",
   "status.connecting": "Connecting to service…",
   "status.connected": "Service connected · v{0}",
   "status.noBackend": "Backend not connected (run rancho serve first)",
@@ -128,6 +130,7 @@ export const en: Strings = {
   // --- bottom bar ----------------------------------------------------------
   "chart.hint": "Drag the timeline or click a curve to inspect a day",
   "speed.label": "Speed",
+  "day.initial": "Day 1",
   "speed.slow": "Slow",
   "speed.normal": "Normal",
   "speed.fast": "Fast",

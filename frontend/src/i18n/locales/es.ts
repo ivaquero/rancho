@@ -15,6 +15,8 @@ export const es: Strings = {
   // --- top bar -------------------------------------------------------------
   "field.scenario": "Escenario",
   "btn.run": "Ejecutar simulación",
+  "btn.play": "Reproducir",
+  "btn.pause": "Pausar",
   "status.connecting": "Conectando con el servicio…",
   "status.connected": "Servicio conectado · v{0}",
   "status.noBackend": "Backend no conectado (ejecuta primero rancho serve)",
@@ -130,6 +132,7 @@ export const es: Strings = {
   // --- bottom bar ----------------------------------------------------------
   "chart.hint": "Arrastra la línea de tiempo o haz clic en una curva para ver un día",
   "speed.label": "Velocidad",
+  "day.initial": "Día 1",
   "speed.slow": "Lento",
   "speed.normal": "Normal",
   "speed.fast": "Rápido",

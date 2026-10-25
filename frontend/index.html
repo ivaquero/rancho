@@ -90,7 +90,9 @@
               <output id="days-out">130</output>
             </label>
             <p class="hint" id="days-hint"></p>
-            <p class="hint" id="grid-hint">18 × 40 = 720 格 · 0.072 ha</p>
+            <!-- Both hints are numbers plus localised units, so JS owns them;
+                 an empty start avoids flashing Chinese in an English UI. -->
+            <p class="hint" id="grid-hint"></p>
           </div>
         </section>
 
@@ -114,11 +116,19 @@
       </section>
 
       <footer class="bar bar--bottom">
-        <button id="play" class="btn btn--ghost" type="button" aria-label="播放">▶</button>
+        <button
+          id="play"
+          class="btn btn--ghost"
+          type="button"
+          aria-label="播放"
+          data-i18n-aria="btn.play"
+        >
+          ▶
+        </button>
         <div class="timeline">
           <input id="day" type="range" min="0" max="1" value="0" step="1" />
           <div class="timeline__labels">
-            <span id="day-label">第 1 天</span>
+            <span id="day-label" data-i18n="day.initial">第 1 天</span>
             <span id="date-label">—</span>
           </div>
         </div>

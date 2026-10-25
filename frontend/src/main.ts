@@ -260,6 +260,8 @@ class App {
   private applyLanguage(): void {
     applyDataI18n();
     this.renderStatus();
+    this.renderGridHint();
+    this.renderDaysHint();
     this.renderChannels();
     this.renderPalette();
     this.renderCropMix();
@@ -423,14 +425,19 @@ class App {
       if (input.value !== value) input.value = value;
       el<HTMLOutputElement>(`${key}-out`).textContent = value;
     }
+    this.renderGridHint();
+    this.pushLayout();
+    this.renderDaysHint();
+  }
+
+  /** Size summary under the sliders: cell count, area, and a big-field warning. */
+  private renderGridHint(): void {
     const cells = this.rows * this.cols;
     el("grid-hint").textContent =
       `${this.rows} × ${this.cols} = ${cells} ${t("unit.cells")} · ${(cells / 10_000).toFixed(3)} ha` +
       // Measured on the reference machine: a run costs roughly one second per
       // 25 000 cell-days, so the largest field the sliders allow is a minute.
       (cells > 2400 ? t("grid.hintLarge") : "");
-    this.pushLayout();
-    this.renderDaysHint();
   }
 
   /** Say who decided the horizon: the slowest crop, or the user's slider. */
@@ -963,14 +970,26 @@ class App {
   private play(): void {
     if (this.playing) return;
     this.playing = true;
-    el("play").textContent = "❚❚";
+    this.setPlayButton("❚❚", "btn.pause");
     this.lastTick = performance.now();
     requestAnimationFrame(this.tick);
   }
 
   private pause(): void {
     this.playing = false;
-    el("play").textContent = "▶";
+    this.setPlayButton("▶", "btn.play");
+  }
+
+  /** Icon button: the glyph is language-free, so the name lives in `aria-label`.
+   *
+   * The `data-i18n-aria` marker is rewritten too, so switching language while
+   * paused keeps saying "Play" and while playing keeps saying "Pause".
+   */
+  private setPlayButton(glyph: string, key: string): void {
+    const button = el<HTMLButtonElement>("play");
+    button.textContent = glyph;
+    button.dataset.i18nAria = key;
+    button.setAttribute("aria-label", t(key));
   }
 
   private readonly tick = (now: number): void => {
