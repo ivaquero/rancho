@@ -1,11 +1,12 @@
-/** Frontend internationalisation: a locale registry plus a few helpers.
+/** Frontend internationalisation: locale registry plus a few helpers.
  *
  * Text reaches the UI from two places:
  *
  * 1. Static framework copy (button labels, section titles, hints) lives in a
  *    `locales/*.ts` dictionary and is addressed by `t(key)`.  Elements carrying
  *    only such text are marked `data-i18n="key"` in the HTML and refreshed by
- *    `applyDataI18n()`.
+ *    `applyDataI18n()`.  The HTML ships *without* copy — the Vite plugin bakes
+ *    in `DEFAULT_LANG` at build time, so no language is hard-coded in markup.
  *
  * 2. Data-driven names (crop / scenario / channel / stage / weather) come from
  *    the server as `label` plus one optional variant per language — `label_en`,
@@ -13,38 +14,19 @@
  *    a server-side language therefore needs no change here.
  *
  * **Adding a language**: write `locales/<code>.ts` exporting a `Strings`
- * object, then add one entry to `LOCALES` below.  Nothing else changes — the
- * picker, the persistence check and the `Lang` type are all derived from it.
+ * object, then add one entry to `LOCALES` in `./locales`.  Nothing else changes
+ * — the picker, the persistence check and the `Lang` type are all derived.
  */
 
-import { en } from "./locales/en";
-import { es } from "./locales/es";
-import { zh, type Strings } from "./locales/zh";
+import { ATTR_KEYS, DEFAULT_LANG, LOCALES, type Lang } from "./locales";
 
-export type { Strings };
-
-/** One registered language: its picker label, BCP-47 tag, and dictionary. */
-export interface Locale {
-  /** Endonym shown in the language picker — "中文", "English", … */
-  label: string;
-  /** Value for `<html lang>`; browsers use it for hyphenation and quotes. */
-  htmlLang: string;
-  strings: Strings;
-}
-
-export const LOCALES = {
-  zh: { label: "中文", htmlLang: "zh-CN", strings: zh },
-  en: { label: "English", htmlLang: "en", strings: en },
-  es: { label: "Español", htmlLang: "es", strings: es },
-} satisfies Record<string, Locale>;
-
-/** Every supported language code — derived, so registering a locale is enough. */
-export type Lang = keyof typeof LOCALES;
-
-/** Locale used when nothing is stored, or the stored value is unknown. */
-const FALLBACK: Lang = "zh";
+export { LOCALES, DEFAULT_LANG } from "./locales";
+export type { Lang, Locale, Strings } from "./locales";
 
 const STORAGE_KEY = "rancho.lang";
+
+/** Style hiding `data-i18n` copy until the bundle has painted its language. */
+const PENDING_STYLE_ID = "i18n-pending";
 
 function isLang(value: string | null): value is Lang {
   return !!value && Object.prototype.hasOwnProperty.call(LOCALES, value);
@@ -57,13 +39,18 @@ function initialLang(): Lang {
   } catch {
     /* localStorage may be unavailable; fall back to the default. */
   }
-  return FALLBACK;
+  return DEFAULT_LANG;
 }
 
 let current: Lang = initialLang();
 const listeners = new Set<() => void>();
 
 document.documentElement.lang = LOCALES[current].htmlLang;
+
+/** Drop the anti-flash style installed by the inline script in `index.html`. */
+function clearPending(): void {
+  document.getElementById(PENDING_STYLE_ID)?.remove();
+}
 
 /** Registered languages, for building the picker. */
 export function langs(): Array<{ code: Lang; label: string }> {
@@ -93,7 +80,7 @@ export function onLangChange(cb: () => void): void {
   listeners.add(cb);
 }
 
-function dict(lang: Lang): Strings {
+function dict(lang: Lang): Record<string, string> {
   return LOCALES[lang].strings;
 }
 
@@ -103,7 +90,7 @@ function dict(lang: Lang): Strings {
  * missing translation is visible on screen rather than blank.
  */
 export function t(key: string, params?: Array<string | number>): string {
-  let value: string | undefined = dict(current)[key] ?? dict(FALLBACK)[key];
+  let value: string | undefined = dict(current)[key] ?? dict(DEFAULT_LANG)[key];
   if (value === undefined) return key;
   if (params) {
     params.forEach((param, index) => {
@@ -119,7 +106,7 @@ export function t(key: string, params?: Array<string | number>): string {
  * such as `soil.${value}` cannot know about values added later upstream.
  */
 export function tOpt(key: string, params?: Array<string | number>): string | undefined {
-  const value: string | undefined = dict(current)[key] ?? dict(FALLBACK)[key];
+  const value: string | undefined = dict(current)[key] ?? dict(DEFAULT_LANG)[key];
   if (value === undefined) return undefined;
   return params ? t(key, params) : value;
 }
@@ -160,18 +147,6 @@ export function dnd(source: {
   return pickVariant(source as Variants, "description") ?? source.description;
 }
 
-/** Which attribute each `data-i18n-*` marker writes to.
- *
- * `data-i18n` covers element text; the rest exist for copy that lives in
- * attributes — icon-only buttons carry their name in `aria-label`, for one.
- * Adding an entry is all it takes to localise another attribute.
- */
-const ATTR_KEYS = {
-  aria: "aria-label",
-  title: "title",
-  placeholder: "placeholder",
-} as const;
-
 /** Refresh every `data-i18n*` element under `root` from the active language. */
 export function applyDataI18n(root: ParentNode = document): void {
   root.querySelectorAll<HTMLElement>("[data-i18n]").forEach((node) => {
@@ -184,4 +159,5 @@ export function applyDataI18n(root: ParentNode = document): void {
       if (key) node.setAttribute(attribute, t(key));
     });
   }
+  clearPending();
 }

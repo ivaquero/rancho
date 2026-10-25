@@ -1,10 +1,39 @@
 <!doctype html>
-<html lang="zh-CN">
+<!--
+  This file carries no copy of its own: every user-visible string is a
+  `data-i18n` key, and the Vite plugin (see vite.config.ts) bakes in
+  DEFAULT_LANG before the bundle runs.  Markup therefore never has to change
+  when copy is edited or a language is added.
+-->
+<html lang="{{htmlLang}}">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <link rel="icon" href="data:," />
-    <title data-i18n="app.title">Rancho · 农田作物仿真台</title>
+    <title data-i18n="app.title"></title>
+    <script>
+      // The baked-in copy belongs to DEFAULT_LANG. When the stored language
+      // differs, hide it until the bundle paints the right one — otherwise
+      // switching to English and reloading flashes the wrong language.
+      // Without JS the baked-in copy simply stays visible.
+      (function () {
+        var baked = "{{defaultLang}}";
+        var tags = {{langMap}};
+        var saved = null;
+        try {
+          saved = localStorage.getItem("rancho.lang");
+        } catch (e) {
+          saved = null;
+        }
+        if (!saved || !tags[saved]) return;
+        document.documentElement.lang = tags[saved];
+        if (saved === baked) return;
+        var style = document.createElement("style");
+        style.id = "i18n-pending";
+        style.textContent = "[data-i18n]{visibility:hidden}";
+        document.head.appendChild(style);
+      })();
+    </script>
   </head>
   <body>
     <div id="app">
@@ -13,30 +42,30 @@
       <header class="bar bar--top">
         <div class="brand">
           <span class="brand__mark">RANCHO</span>
-          <span class="brand__sub" data-i18n="brand.sub">农田作物仿真台</span>
+          <span class="brand__sub" data-i18n="brand.sub"></span>
         </div>
         <div class="controls">
           <label class="field">
-            <span data-i18n="field.scenario">场景</span>
+            <span data-i18n="field.scenario"></span>
             <select id="preset"></select>
           </label>
-          <button id="run" class="btn btn--primary" type="button" data-i18n="btn.run">运行仿真</button>
+          <button id="run" class="btn btn--primary" type="button" data-i18n="btn.run"></button>
           <label class="field field--tight">
-            <span data-i18n="lang.label">语言</span>
+            <span data-i18n="lang.label"></span>
             <select id="lang"></select>
           </label>
-          <span id="status" class="status" data-i18n="status.connecting">正在连接服务…</span>
+          <span id="status" class="status" data-i18n="status.connecting"></span>
         </div>
       </header>
 
       <aside class="panel panel--right">
         <section class="block">
-          <h2 data-i18n="title.channels">着色通道</h2>
+          <h2 data-i18n="title.channels"></h2>
           <div id="channels" class="chips"></div>
         </section>
 
         <section class="block">
-          <h2 data-i18n="title.legend">色标</h2>
+          <h2 data-i18n="title.legend"></h2>
           <div class="legend">
             <div id="legend-bar" class="legend__bar"></div>
             <div id="legend-crops" class="legend__crops" hidden></div>
@@ -49,99 +78,92 @@
         </section>
 
         <section class="block">
-          <h2 data-i18n="title.metrics">当日状态</h2>
+          <h2 data-i18n="title.metrics"></h2>
           <dl id="metrics" class="metrics"></dl>
         </section>
 
         <section class="block">
-          <h2 data-i18n="title.layout">蔬菜布局</h2>
+          <h2 data-i18n="title.layout"></h2>
           <div id="palette" class="chips palette"></div>
           <div class="stack">
             <label class="toggle">
               <input id="paint-mode" type="checkbox" checked />
-              <span data-i18n="layout.toggle">拖拽画笔（关闭后拖动为旋转视角）</span>
+              <span data-i18n="layout.toggle"></span>
             </label>
             <div class="stack__row">
-              <button id="fill-all" class="btn btn--tiny" type="button" data-i18n="btn.fillAll">整块填充</button>
-              <button id="fill-bands" class="btn btn--tiny" type="button" data-i18n="btn.fillBands">按列分带</button>
-              <button id="reset-crops" class="btn btn--tiny" type="button" data-i18n="btn.reset">还原场景</button>
+              <button id="fill-all" class="btn btn--tiny" type="button" data-i18n="btn.fillAll"></button>
+              <button id="fill-bands" class="btn btn--tiny" type="button" data-i18n="btn.fillBands"></button>
+              <button id="reset-crops" class="btn btn--tiny" type="button" data-i18n="btn.reset"></button>
             </div>
-            <p class="hint" id="layout-hint" data-i18n="layout.enabledHint">点击或拖拽地块给格子换作物，改动后自动重跑。</p>
+            <p class="hint" id="layout-hint" data-i18n="layout.enabledHint"></p>
           </div>
           <dl id="crop-mix" class="metrics metrics--dim"></dl>
         </section>
 
         <section class="block">
-          <h2 data-i18n="title.size">地块尺寸</h2>
+          <h2 data-i18n="title.size"></h2>
           <div class="stack">
             <label class="slider">
-              <span class="slider__label" data-i18n="slider.rows">行数</span>
+              <span class="slider__label" data-i18n="slider.rows"></span>
               <input id="rows" type="range" min="4" max="72" step="1" value="18" />
               <output id="rows-out">18</output>
             </label>
             <label class="slider">
-              <span class="slider__label" data-i18n="slider.cols">列数</span>
+              <span class="slider__label" data-i18n="slider.cols"></span>
               <input id="cols" type="range" min="4" max="96" step="1" value="40" />
               <output id="cols-out">40</output>
             </label>
             <label class="slider">
-              <span class="slider__label" data-i18n="slider.days">天数</span>
+              <span class="slider__label" data-i18n="slider.days"></span>
               <input id="days" type="range" min="10" max="240" step="5" value="130" />
               <output id="days-out">130</output>
             </label>
+            <!-- Both hints are numbers plus localised units, so JS owns them. -->
             <p class="hint" id="days-hint"></p>
-            <!-- Both hints are numbers plus localised units, so JS owns them;
-                 an empty start avoids flashing Chinese in an English UI. -->
             <p class="hint" id="grid-hint"></p>
           </div>
         </section>
 
         <section class="block">
-          <h2 data-i18n="title.field">地块</h2>
+          <h2 data-i18n="title.field"></h2>
           <dl id="field-info" class="metrics metrics--dim"></dl>
         </section>
 
         <section class="block">
-          <h2 data-i18n="title.yield">产量</h2>
+          <h2 data-i18n="title.yield"></h2>
           <dl id="yield-info" class="metrics metrics--dim"></dl>
         </section>
       </aside>
 
       <section class="panel panel--chart">
         <div class="panel__head">
-          <h2 data-i18n="title.trajectory">全季轨迹</h2>
-          <span class="panel__hint" data-i18n="chart.hint">拖动时间轴或点击曲线查看当日</span>
+          <h2 data-i18n="title.trajectory"></h2>
+          <span class="panel__hint" data-i18n="chart.hint"></span>
         </div>
         <div id="chart" class="chart"></div>
       </section>
 
       <footer class="bar bar--bottom">
-        <button
-          id="play"
-          class="btn btn--ghost"
-          type="button"
-          aria-label="播放"
-          data-i18n-aria="btn.play"
-        >
-          ▶
-        </button>
+        <!-- Icon-only button: the glyph is language-free, so its name is the
+             aria label, rewritten by setPlayButton() as play/pause flips. -->
+        <button id="play" class="btn btn--ghost" type="button" data-i18n-aria="btn.play">▶</button>
         <div class="timeline">
           <input id="day" type="range" min="0" max="1" value="0" step="1" />
           <div class="timeline__labels">
-            <span id="day-label" data-i18n="day.initial">第 1 天</span>
-            <span id="date-label">—</span>
+            <span id="day-label" data-i18n="day.initial"></span>
+            <span id="date-label" data-i18n="na"></span>
           </div>
         </div>
         <label class="field field--tight">
-          <span data-i18n="speed.label">速度</span>
+          <span data-i18n="speed.label"></span>
           <select id="speed">
-            <option value="200" data-i18n="speed.slow">慢</option>
-            <option value="90" selected data-i18n="speed.normal">常速</option>
-            <option value="35" data-i18n="speed.fast">快</option>
+            <option value="200" data-i18n="speed.slow"></option>
+            <option value="90" selected data-i18n="speed.normal"></option>
+            <option value="35" data-i18n="speed.fast"></option>
           </select>
         </label>
         <label class="field field--tight">
-          <span data-i18n="field.exaggerate">株高夸张</span>
+          <span data-i18n="field.exaggerate"></span>
           <input id="exaggerate" type="range" min="1" max="3" step="0.1" value="1.8" />
         </label>
       </footer>
@@ -149,7 +171,7 @@
       <div id="tooltip" class="tooltip" hidden></div>
       <div id="overlay" class="overlay">
         <div class="overlay__box">
-          <p id="overlay-text" data-i18n="overlay.connecting">正在连接仿真服务…</p>
+          <p id="overlay-text" data-i18n="overlay.connecting"></p>
         </div>
       </div>
     </div>

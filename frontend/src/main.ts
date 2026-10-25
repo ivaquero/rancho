@@ -121,6 +121,9 @@ class App {
   }
 
   start(): void {
+    // Paint the stored language before the first await: bootstrap bails out
+    // early when the backend is down, and the copy must not stay hidden.
+    applyDataI18n();
     void this.bootstrap();
   }
 
