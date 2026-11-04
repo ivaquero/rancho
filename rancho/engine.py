@@ -27,7 +27,7 @@ from cropforge.plugins.wheat import StandardWheat
 
 from rancho.agronomy import AgronomyModel
 from rancho.climate import build_soil_field, write_soil_csv
-from rancho.frames import build_bundle
+from rancho.frames import SCHEMA_VERSION, build_bundle
 from rancho.mosaic import CropMosaic
 from rancho.scenario import MOSAIC_KEYS, ScenarioConfig, crop_grid, horizon_days, with_horizon
 from rancho.vegetables import PLUGINS as VEGETABLE_PLUGINS
@@ -74,9 +74,15 @@ def run_id_for(cfg: ScenarioConfig) -> str:
 
     The horizon is resolved first: a field left to run until its crop matures
     *is* the same run as the same field with that number of days written in.
+
+    The bundle schema version is folded into the hash, so changing the render
+    format (a channel, the quantisation, the label shape) yields a different
+    identifier: the old disk cache is simply never looked up again rather than
+    replayed as stale bytes against a client that has moved on.
     """
     payload = with_horizon(cfg).model_dump_json()
-    return hashlib.sha1(payload.encode("utf-8")).hexdigest()[:12]
+    key = f"{SCHEMA_VERSION}:{payload}"
+    return hashlib.sha1(key.encode("utf-8")).hexdigest()[:12]
 
 
 @contextmanager

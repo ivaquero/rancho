@@ -104,6 +104,16 @@ CHANNELS: Final[tuple[ChannelSpec, ...]] = (
 
 _QUANT_MAX: Final = 255.0
 
+#: Version of the bundle wire format produced by :func:`build_bundle`.
+#:
+#: ``run_id`` is a hash of the scenario config alone and the disk cache is keyed
+#: by it, so a run made before a channel was renamed or the quantisation
+#: changed would be replayed verbatim against a client that now expects a
+#: different shape — stale bytes, wrong colours, no error.  Bump this whenever
+#: the output layout changes incompatibly; it is folded into ``run_id`` (so a
+#: new run gets a new key) and checked on read (:class:`rancho.store.RunStore`).
+SCHEMA_VERSION: Final = 1
+
 
 def _read_table(log_dir: Path, name: str) -> pd.DataFrame:
     """Read one Parquet dataset, normalising the ``day`` partition column.
@@ -293,7 +303,8 @@ def build_bundle(
         dtype=np.int64
     )
     day_index = plants["day"].to_numpy(dtype=np.int64) - 1
-    stage_values[day_index, cell_index] = stage_index
+    valid = (day_index >= 0) & (day_index < days) & (cell_index >= 0) & (cell_index < rows * cols)
+    stage_values[day_index[valid], cell_index[valid]] = stage_index[valid]
     stacks: dict[str, np.ndarray] = {**stack, "stage": stage_values}
 
     domains: dict[str, list[float]] = {}
@@ -378,6 +389,7 @@ def build_bundle(
     return {
         "id": run_id,
         "created_at": created_at,
+        "schema_version": SCHEMA_VERSION,
         "meta": {
             "name": cfg.name,
             "rows": rows,

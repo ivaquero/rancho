@@ -16,6 +16,7 @@ from pydantic import BaseModel
 from rancho import __version__
 from rancho.crops import TEMPLATES
 from rancho.engine import RunBusyError, run_id_for, run_scenario
+from rancho.frames import SCHEMA_VERSION
 from rancho.scenario import (
     DEFAULT_PRESET,
     MOSAIC_KEYS,
@@ -63,7 +64,7 @@ def _resolve(request: RunRequest) -> ScenarioConfig:
 
 def create_app(work_root: Path, dist_dir: Path | None = None) -> FastAPI:
     """Build the FastAPI app serving the API and (optionally) the built client."""
-    store = RunStore(work_root / "bundles")
+    store = RunStore(work_root / "bundles", schema_version=SCHEMA_VERSION)
     app = FastAPI(
         title="Rancho · 农田作物仿真台",
         version=__version__,

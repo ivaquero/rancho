@@ -8,6 +8,7 @@ engine never fails halfway through a run.
 
 from __future__ import annotations
 
+import math
 from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Literal
@@ -134,6 +135,20 @@ CROP_PROFILES: dict[str, CropProfile] = {
     )
     for key, template in TEMPLATES.items()
 }
+
+
+def _round_half_up(value: float) -> int:
+    """Round to the nearest integer, halves away from zero — like ``Math.round``.
+
+    :meth:`ScenarioConfig.with_grid` and the frontend's ``remapCrops`` must pick
+    the same source cell for the same relative position, or a field resized in
+    the UI would plant something the CLI does not.  ``Math.round`` sends ``.5``
+    up; Python's :func:`round` is banker's rounding and sends it to even, so the
+    two disagreed whenever a remap quotient landed exactly on ``.5`` (e.g. a 4→8
+    grid mapping new row 1).  Forcing the half-up rule back into the server is
+    what makes the mirrored algorithm actually a mirror.
+    """
+    return math.floor(value + 0.5)
 
 
 class PhysicsConfig(BaseModel):
@@ -278,9 +293,9 @@ class ScenarioConfig(BaseModel):
             source = list(self.crop_map)
             remapped: list[str] = []
             for row in range(rows):
-                source_row = min(self.rows - 1, round(row * self.rows / rows))
+                source_row = min(self.rows - 1, _round_half_up(row * self.rows / rows))
                 for col in range(cols):
-                    source_col = min(self.cols - 1, round(col * self.cols / cols))
+                    source_col = min(self.cols - 1, _round_half_up(col * self.cols / cols))
                     remapped.append(source[source_row * self.cols + source_col])
             updates["crop_map"] = remapped
         return self.model_copy(update=updates)

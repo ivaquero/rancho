@@ -137,6 +137,23 @@ def test_resizing_the_grid_carries_the_layout_across() -> None:
     assert (bigger.crop_map or [])[7] == "lettuce"
 
 
+def test_the_resize_tie_breaks_up_like_the_browser() -> None:
+    """The ``.5`` quotient — the only place a hand-mirrored remap can drift.
+
+    Going 4→8, new row 1 maps to ``1 * 4 / 8 = 0.5``.  ``Math.round`` in the
+    client's ``remapCrops`` sends that to source row 1; Python's ``round`` used
+    to send it to row 0 (banker's rounding), so the painted preview and the
+    field the CLI actually planted disagreed.  This pins both to the same cell.
+    """
+    cfg = ScenarioConfig(crop="tomato", rows=ROWS, cols=COLS, crop_map=MIXED)
+    bigger = cfg.with_grid(8, 8)
+    remapped = bigger.crop_map or []
+    # New cell (1, 0) takes the crop of old cell (1, 0), not (0, 0).
+    assert remapped[1 * 8 + 0] == MIXED[1 * COLS + 0]
+    # New cell (0, 1) takes the crop of old cell (0, 1), not (0, 0).
+    assert remapped[0 * 8 + 1] == MIXED[0 * COLS + 1]
+
+
 # ------------------------------------------------------------ the dispatcher
 
 

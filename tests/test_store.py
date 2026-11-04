@@ -83,3 +83,43 @@ def test_summaries_are_newest_first(tmp_path) -> None:
     # The sidecar is what the listing reads, so it must stay small.
     sidecar = json.loads((tmp_path / "run0.meta.json").read_text(encoding="utf-8"))
     assert "frames" not in sidecar
+
+
+def test_a_damaged_bundle_on_disk_is_a_miss_not_an_error(tmp_path) -> None:
+    """A truncated or corrupt gzip stream must send the caller back to the sim.
+
+    The cache is reconstructible, so a half-written ``.json.gz`` is not worth a
+    500 — it is simply not there.
+    """
+    store = RunStore(tmp_path)
+    # Bytes that are neither valid gzip nor valid JSON.
+    (tmp_path / "deadbeef.json.gz").write_bytes(b"\x1f\x8b not really gzip at all")
+    assert store.get("deadbeef") is None
+
+
+def test_a_stale_schema_version_is_never_served(tmp_path) -> None:
+    """Enforcing a version must reject an older-shaped bundle on read."""
+    writer = RunStore(tmp_path)
+    bundle = _bundle("oldshape")
+    bundle["schema_version"] = 99
+    writer.put(bundle)
+    # The disk copy is there, but a store that wants version 1 will not surface it.
+    current = RunStore(tmp_path, schema_version=1)
+    assert current.get("oldshape") is None
+    # …while a store that does not care still reads it back.
+    assert RunStore(tmp_path).get("oldshape") == bundle
+
+
+def test_the_listing_drops_runs_of_another_schema_version(tmp_path) -> None:
+    """A run the client can no longer render must not appear in ``/api/runs``."""
+    writer = RunStore(tmp_path)
+    fresh = _bundle("fresh")
+    fresh["schema_version"] = 1
+    writer.put(fresh)
+    stale = _bundle("stale")
+    stale["schema_version"] = 0
+    writer.put(stale)
+
+    assert [item["id"] for item in RunStore(tmp_path, schema_version=1).summaries()] == ["fresh"]
+    # No version enforced: everything is listed, stale sidecar included.
+    assert {item["id"] for item in RunStore(tmp_path).summaries()} == {"fresh", "stale"}
