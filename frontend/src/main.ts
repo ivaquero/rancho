@@ -16,19 +16,14 @@ import {
   tOpt,
   type Lang,
 } from "./i18n";
-import { decodeChannel, type Bundle, type CropOption, type Limits, type Preset } from "./types";
-
-const CHANNEL_ORDER = [
-  CROP_CHANNEL,
-  "lai",
-  "biomass",
-  "height",
-  "stress",
-  "moisture",
-  "nitrogen",
-  "disease",
-  "stage",
-];
+import {
+  decodeChannel,
+  type Bundle,
+  type CropOption,
+  type Labels,
+  type Limits,
+  type Preset,
+} from "./types";
 
 const DATE_ORIGIN = Date.UTC(2026, 0, 1);
 
@@ -215,20 +210,12 @@ class App {
   }
 
   /** Localised crop name from a bundle `meta.crops` entry. */
-  private metaCropName(entry: {
-    label: string;
-    label_en?: string | null;
-    label_es?: string | null;
-  }): string {
+  private metaCropName(entry: { labels: Labels }): string {
     return dn(entry);
   }
 
   /** Localised phenology-stage name. */
-  private stageName(stage: {
-    label: string;
-    label_en?: string | null;
-    label_es?: string | null;
-  }): string {
+  private stageName(stage: { labels: Labels }): string {
     return dn(stage);
   }
 
@@ -624,7 +611,7 @@ class App {
     const container = el("channels");
     container.innerHTML = "";
     if (!bundle) return;
-    const names = CHANNEL_ORDER.filter((name) => name === CROP_CHANNEL || name in bundle.channels);
+    const names = [CROP_CHANNEL, ...Object.keys(bundle.channels)];
     for (const name of names) {
       const label =
         name === CROP_CHANNEL ? t("channel.cropLayout") : this.channelName(name);
@@ -801,12 +788,8 @@ class App {
         ? t("field.mixed", [planted])
         : (localCrop
           ? this.cropName(localCrop)
-          : meta.crop_label
-            ? dn({
-                label: meta.crop_label,
-                label_en: meta.crop_label_en,
-                label_es: meta.crop_label_es,
-              })
+          : meta.crop_labels
+            ? dn({ labels: meta.crop_labels })
             : meta.crop);
     const rows: [string, string][] = [
       [t("field.field"), `${meta.rows} × ${meta.cols} ${t("unit.cells")}`],

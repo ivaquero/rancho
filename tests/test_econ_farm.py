@@ -16,12 +16,12 @@ from dataclasses import replace
 
 import pytest
 
+from rancho.cropforge_acl import quiet_state_logger
 from rancho.econ.farm import (
     CONVERGENCE,
     FarmSeason,
     FarmTable,
     Season,
-    _unlogged,
     measure_table,
     run_season,
     season_run,
@@ -55,13 +55,13 @@ def test_a_farm_season_returns_one_non_negative_increment_per_day() -> None:
 
 
 def test_skipping_the_state_log_costs_time_but_not_physics() -> None:
-    """``_unlogged`` is a shortcut around CropForge's Parquet log, not a knob.
+    """``quiet_state_logger`` is a shortcut around CropForge's Parquet log, not a knob.
 
     It must change the timing and nothing else, so the same season run with and
     without it has to agree exactly -- not approximately.
     """
     logged = run_season(CROPS["tomato"], _SEASON)
-    with _unlogged():
+    with quiet_state_logger():
         quiet = run_season(CROPS["tomato"], _SEASON)
     assert quiet == logged
 

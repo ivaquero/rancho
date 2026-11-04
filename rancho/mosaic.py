@@ -23,8 +23,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from cropforge._plugins_base import CropPlugin
-
+from rancho.cropforge_acl import CropPlugin
 from rancho.scenario import unique_in_order
 from rancho.vegetables import PLUGINS as VEGETABLE_PLUGINS
 from rancho.vegetables import GreenhouseVegetable

@@ -17,11 +17,10 @@ import numpy as np
 import pandas as pd
 
 from rancho.crops import STAGE_ORDER
+from rancho.i18n import labels_from, localize
 from rancho.scenario import (
     CROP_PROFILES,
     STAGE_LABELS,
-    STAGE_LABELS_EN,
-    STAGE_LABELS_ES,
     ScenarioConfig,
     crop_grid,
     crop_indices,
@@ -35,69 +34,56 @@ class ChannelSpec:
     """Static description of one per-cell variable."""
 
     name: str
-    label: str
+    labels: dict[str, str]
     unit: str
     kind: str = "continuous"
-    label_en: str = ""
-    label_es: str = ""
+
+    @property
+    def label(self) -> str:
+        """Base-language channel name."""
+        return self.labels["zh"]
 
 
 CHANNELS: Final[tuple[ChannelSpec, ...]] = (
     ChannelSpec(
         name="lai",
-        label="叶面积指数",
+        labels=localize("叶面积指数", en="Leaf area index", es="Índice de área foliar"),
         unit="m²/m²",
-        label_en="Leaf area index",
-        label_es="Índice de área foliar",
     ),
     ChannelSpec(
         name="biomass",
-        label="单株生物量",
+        labels=localize("单株生物量", en="Plant biomass", es="Biomasa por planta"),
         unit="g",
-        label_en="Plant biomass",
-        label_es="Biomasa por planta",
     ),
     ChannelSpec(
         name="height",
-        label="株高",
+        labels=localize("株高", en="Plant height", es="Altura de planta"),
         unit="cm",
-        label_en="Plant height",
-        label_es="Altura de planta",
     ),
     ChannelSpec(
         name="stress",
-        label="胁迫指数",
+        labels=localize("胁迫指数", en="Stress index", es="Índice de estrés"),
         unit="0–1",
-        label_en="Stress index",
-        label_es="Índice de estrés",
     ),
     ChannelSpec(
         name="moisture",
-        label="表层含水率",
+        labels=localize("表层含水率", en="Surface moisture", es="Humedad superficial"),
         unit="%",
-        label_en="Surface moisture",
-        label_es="Humedad superficial",
     ),
     ChannelSpec(
         name="nitrogen",
-        label="表层氮素",
+        labels=localize("表层氮素", en="Surface nitrogen", es="Nitrógeno superficial"),
         unit="kg/ha",
-        label_en="Surface nitrogen",
-        label_es="Nitrógeno superficial",
     ),
     ChannelSpec(
         name="disease",
-        label="病害严重度",
+        labels=localize("病害严重度", en="Disease severity", es="Severidad de enfermedad"),
         unit="0–1",
-        label_en="Disease severity",
-        label_es="Severidad de enfermedad",
     ),
     ChannelSpec(
         name="stage",
-        label="生育阶段",
+        labels=localize("生育阶段", en="Growth stage", es="Etapa fenológica"),
         unit="阶段",
-        label_en="Growth stage",
-        label_es="Etapa fenológica",
         kind="stage",
     ),
 )
@@ -112,7 +98,7 @@ _QUANT_MAX: Final = 255.0
 #: different shape — stale bytes, wrong colours, no error.  Bump this whenever
 #: the output layout changes incompatibly; it is folded into ``run_id`` (so a
 #: new run gets a new key) and checked on read (:class:`rancho.store.RunStore`).
-SCHEMA_VERSION: Final = 1
+SCHEMA_VERSION: Final = 2
 
 
 def _read_table(log_dir: Path, name: str) -> pd.DataFrame:
@@ -246,9 +232,7 @@ def _crop_yields(
         rows.append(
             {
                 "key": key,
-                "label": profile.label,
-                "label_en": profile.label_en,
-                "label_es": profile.label_es,
+                "labels": profile.labels,
                 "cells": count,
                 "share": round(count / max(1, cells), 4),
                 "harvest_index": round(index, 3),
@@ -396,9 +380,7 @@ def build_bundle(
             "cols": cols,
             "days": days,
             "crop": cfg.crop,
-            "crop_label": CROP_PROFILES[cfg.crop].label,
-            "crop_label_en": CROP_PROFILES[cfg.crop].label_en,
-            "crop_label_es": CROP_PROFILES[cfg.crop].label_es,
+            "crop_labels": CROP_PROFILES[cfg.crop].labels,
             "variety": cfg.variety,
             "sowing_doy": cfg.sowing_doy,
             "soil": cfg.soil,
@@ -423,9 +405,7 @@ def build_bundle(
             "crops": [
                 {
                     "key": key,
-                    "label": CROP_PROFILES[key].label,
-                    "label_en": CROP_PROFILES[key].label_en,
-                    "label_es": CROP_PROFILES[key].label_es,
+                    "labels": CROP_PROFILES[key].labels,
                 }
                 for key in crop_keys(cfg)
             ],
@@ -442,9 +422,7 @@ def build_bundle(
         },
         "channels": {
             spec.name: {
-                "label": spec.label,
-                "label_en": spec.label_en,
-                "label_es": spec.label_es,
+                "labels": spec.labels,
                 "unit": spec.unit,
                 "kind": spec.kind,
                 "domain": domains[spec.name],
@@ -454,9 +432,7 @@ def build_bundle(
         "stages": [
             {
                 "key": name,
-                "label": STAGE_LABELS.get(name, name),
-                "label_en": STAGE_LABELS_EN.get(name, name),
-                "label_es": STAGE_LABELS_ES.get(name, name),
+                "labels": labels_from(STAGE_LABELS, name, default=name),
             }
             for name in stages
         ],

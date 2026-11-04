@@ -45,6 +45,8 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
+from rancho.i18n import BASE_LANG, localize
+
 #: Canonical phenological stage order shared by all crops.  Only the stages a
 #: crop actually passes through appear in a run; the list is a superset so that
 #: cereals and greenhouse vegetables can share one axis in the UI.
@@ -184,12 +186,11 @@ class CropTemplate(_Strict):
     """One crop, exactly as it is written on disk."""
 
     id: str = Field(min_length=1, max_length=32, pattern=r"^[a-z][a-z0-9_-]*$")
-    label: str = Field(min_length=1, max_length=32)
-    #: English display name for the UI, reports and ledgers.  Optional so older
-    #: single-language templates still load; the client falls back to ``label``.
-    label_en: str | None = None
-    #: Spanish display name, same fallback rules as ``label_en``.
-    label_es: str | None = None
+    #: Display names by language code, e.g. ``{"zh": "番茄", "en": "Tomato", …}``.
+    #: Authoring still accepts the legacy flat ``label`` / ``label_en`` /
+    #: ``label_es`` keys — :meth:`_fold_labels` folds them into this map so a new
+    #: language is a new key in one place rather than a new field everywhere.
+    labels: dict[str, str]
     species: str = Field(min_length=1, max_length=64)
     #: Phenology, canopy and allometry.  All four go together or not at all:
     #: without them CropForge's own plugin models the crop.
@@ -205,6 +206,35 @@ class CropTemplate(_Strict):
     product: Product
     #: Omitted by crops that never enter the greenhouse auction.
     market: Market | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _fold_labels(cls, data: object) -> object:
+        """Normalise display names into the ``labels`` map.
+
+        Two authoring styles are accepted: a ``[labels]`` table, or the legacy
+        flat ``label`` (+ optional ``label_en`` / ``label_es``) so the existing
+        templates need no rewrite.  Either way the result is a complete map with
+        every variant filled along ``es → en → zh`` — the same chain the client
+        walks — and the legacy keys are dropped so ``extra="forbid"`` stays put.
+        """
+        if not isinstance(data, dict):
+            return data
+        if isinstance(data.get("labels"), dict):
+            given: dict[str, str] = dict(data["labels"])
+        elif isinstance(data.get("label"), str):
+            given = localize(data["label"], en=data.get("label_en"), es=data.get("label_es"))
+        else:
+            return data  # no name anywhere: let the required-field error surface
+        base = given.get(BASE_LANG)
+        if not base:
+            raise ValueError(f"labels 必须包含基础语言 {BASE_LANG!r} 的名字")
+        complete = localize(base, en=given.get("en"), es=given.get("es"))
+        complete.update(given)
+        folded = {**data, "labels": complete}
+        for legacy in ("label", "label_en", "label_es"):
+            folded.pop(legacy, None)
+        return folded
 
     @model_validator(mode="after")
     def _check(self) -> CropTemplate:
@@ -254,6 +284,11 @@ class CropTemplate(_Strict):
         if stray:
             raise ValueError(f"splits 必须落在 (0, 1]：{stray}")
         return self
+
+    @property
+    def label(self) -> str:
+        """Base-language display name — what the CLI, ledgers and reports print."""
+        return self.labels[BASE_LANG]
 
     @property
     def has_phenology(self) -> bool:

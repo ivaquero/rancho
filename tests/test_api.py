@@ -84,7 +84,7 @@ def test_presets_mark_one_default_and_carry_every_label(tmp_path) -> None:
     assert sum(1 for preset in body if preset["default"]) == 1
     assert DEFAULT_PRESET in {preset["id"] for preset in body}
     for preset in body:
-        assert preset["label"]
+        assert preset["labels"]["zh"]
         assert preset["config"]
 
 

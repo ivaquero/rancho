@@ -9,9 +9,9 @@
  *    in `DEFAULT_LANG` at build time, so no language is hard-coded in markup.
  *
  * 2. Data-driven names (crop / scenario / channel / stage / weather) come from
- *    the server as `label` plus one optional variant per language — `label_en`,
- *    `label_es` — and the client picks the right one with `dn(source)`.  Adding
- *    a server-side language therefore needs no change here.
+ *    the server as a single `labels` map keyed by language code, and the client
+ *    reads the active entry with `dn(source)`.  Adding a server-side language is
+ *    just another key in that map — nothing here has to change.
  *
  * **Adding a language**: write `locales/<code>.ts` exporting a `Strings`
  * object, then add one entry to `LOCALES` in `./locales`.  Nothing else changes
@@ -111,40 +111,30 @@ export function tOpt(key: string, params?: Array<string | number>): string | und
   return params ? t(key, params) : value;
 }
 
-type Variants = Record<string, string | null | undefined>;
+type Labels = Record<string, string | null | undefined>;
 
-/** Resolve `field` / `field_<lang>` for the active language.
+/** Pick the active language's entry from a server label map.
  *
- * Chinese is the base form; every other language tries its own variant, then
- * English, and only then falls back to the Chinese label — so a language the
- * server has not caught up with yet reads English rather than Chinese.
+ * Chinese is the base form every map carries.  A language the server has not
+ * caught up with falls back to English, then to the base — so an untranslated
+ * name still reads a real word rather than a raw key or a blank.
  */
-function pickVariant(source: Variants, field: string): string | undefined {
-  const base = source[field];
-  if (current === "zh") return typeof base === "string" ? base : undefined;
-  const localised = source[`${field}_${current}`];
-  if (localised) return localised;
-  const english = source[`${field}_en`];
-  if (english) return english;
-  return typeof base === "string" ? base : undefined;
+function pickLabel(map: Labels | undefined): string | undefined {
+  if (!map) return undefined;
+  return map[current] ?? map.en ?? map[DEFAULT_LANG] ?? undefined;
 }
 
-/** Localised server name — reads `label`, `label_en`, `label_es`, … */
-export function dn(source: {
-  label: string;
-  label_en?: string | null;
-  label_es?: string | null;
-}): string {
-  return pickVariant(source as Variants, "label") ?? source.label;
+/** Localised server name — reads the `labels` map for the active language. */
+export function dn(source: { labels?: Labels | null; label?: string | null }): string {
+  return pickLabel(source.labels ?? undefined) ?? source.label ?? "";
 }
 
-/** Localised server blurb — reads `description`, `description_en`, … */
+/** Localised server blurb — reads the `descriptions` map for the active language. */
 export function dnd(source: {
-  description: string;
-  description_en?: string | null;
-  description_es?: string | null;
+  descriptions?: Labels | null;
+  description?: string | null;
 }): string {
-  return pickVariant(source as Variants, "description") ?? source.description;
+  return pickLabel(source.descriptions ?? undefined) ?? source.description ?? "";
 }
 
 /** Refresh every `data-i18n*` element under `root` from the active language. */

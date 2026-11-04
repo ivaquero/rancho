@@ -28,8 +28,9 @@ Three numbers worth remembering when reading the output:
   days on a 36-cell field costs about ten milliseconds, so a two-pass probe over
   six arms and two tariffs is under a second.  Over 90 % of a season used to be
   CropForge encoding a Parquet dataset that this module then deleted unread; see
-  ``_Unlogged``.  The field is a *bed-scale stand-in*: every quantity is per m²,
-  and the grid only exists so the physics hooks have cells to write into.
+  ``rancho.cropforge_acl.quiet_state_logger``.  The field is a *bed-scale
+  stand-in*: every quantity is per m², and the grid only exists so the physics
+  hooks have cells to write into.
 * **The perturbation is seasonal, not diurnal.**  The marginal value of a photon
   is measured by re-running the whole season at ±10 % radiation and differencing
   each day's increment.  Because the canopy here is driven by thermal time and
@@ -46,8 +47,7 @@ from __future__ import annotations
 
 import os
 import threading
-from collections.abc import Generator, Sequence
-from contextlib import contextmanager
+from collections.abc import Sequence
 from dataclasses import dataclass, field, replace
 from datetime import date, timedelta
 from pathlib import Path
@@ -56,9 +56,9 @@ from typing import Any, Final
 
 from cropforge import Crop, Farm, Field, Weather
 from cropforge.loaders import Soil
-from cropforge.logger import StateLogger
 
 from rancho.agronomy import CROP_WATER
+from rancho.cropforge_acl import init_field_state, quiet_state_logger
 from rancho.econ.growth import (
     PLUGINS,
     GrowthFactory,
@@ -89,42 +89,6 @@ _EPOCH = date(2026, 1, 1)
 #: CropForge writes its Parquet log relative to the working directory, so runs
 #: are serialised — ``chdir`` is process-wide.
 _RUN_LOCK = threading.Lock()
-
-
-class _Unlogged(StateLogger):
-    """The session logger, minus the session.
-
-    Every ``Farm.run`` builds a partitioned Parquet dataset of the whole field
-    and the probe deletes it unread one call later.  At this field size encoding
-    it costs about twelve times what the physics it records costs, plus the same
-    again to delete the temporary tree, so the two methods that produce it are
-    stubbed out for the run.
-    Everything else is inherited: the session directory, ``log_path`` and the
-    terrain dump still happen, and any consumer of the log would simply find an
-    empty dataset.
-
-    shortcut: CropForge's logging API, not a supported switch — if the probe
-    ever needs the log back, delete this class and the guard in ``_simulate``.
-    """
-
-    def record(self, *args: Any, **kwargs: Any) -> None:
-        return None
-
-    def flush(self) -> None:
-        return None
-
-
-@contextmanager
-def _unlogged() -> Generator[None]:
-    """Install :class:`_Unlogged` where ``Farm.run`` imports it from."""
-    import cropforge.logger as logger_module
-
-    saved = logger_module.StateLogger
-    logger_module.StateLogger = _Unlogged  # ty: ignore[invalid-assignment] - the patch
-    try:
-        yield
-    finally:
-        logger_module.StateLogger = saved
 
 
 @dataclass(frozen=True, slots=True)
@@ -375,7 +339,7 @@ def _simulate(
         farm.step(phase=5)(snapshot)
 
         previous = Path.cwd()
-        with _RUN_LOCK, _unlogged():
+        with _RUN_LOCK, quiet_state_logger():
             os.chdir(tmp)
             try:
                 farm.run(days=days)
@@ -394,16 +358,11 @@ def _seed_seedlings(field_: Field, spec: CropSpec) -> None:
     step phases belong to the physics engines, so there is no public hook that
     runs before the first day's radiation.  Initialising the field state here
     and seeding the canopy is the seam CropForge itself uses in
-    ``prepare_next_season``; if that private name ever moves, this fails loudly
-    instead of silently growing a season from a seed.
+    ``prepare_next_season``; the private name is reached through the
+    :func:`rancho.cropforge_acl.init_field_state` wrapper, which fails loudly if
+    that seam ever moves instead of silently growing a season from a seed.
     """
-    initialise = getattr(field_, "_init_field_state", None)
-    if initialise is None:
-        raise RuntimeError(
-            "CropForge no longer exposes Field._init_field_state; "
-            "the transplanted-seedling start cannot be applied."
-        )
-    state = initialise(day=1)
+    state = init_field_state(field_, day=1)
     stage, thermal_time = transplant_stage(PLUGINS[spec.key]())
     for plant in state.plants:
         plant.lai = spec.transplant_lai

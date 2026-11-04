@@ -32,6 +32,7 @@ from pathlib import Path
 from typing import Any, Final
 
 from rancho import __version__
+from rancho.i18n import localize
 from rancho.scenario import ScenarioConfig, WeatherSource, horizon_days
 
 #: Column order CropForge expects; the unit of each column is in the name.
@@ -91,10 +92,8 @@ class WeatherSeries:
 
     days: tuple[WeatherDay, ...]
     source: WeatherSource
-    label: str
+    labels: dict[str, str]
     provider: str
-    label_en: str = ""
-    label_es: str = ""
     #: Site the series describes.  Synthetic weather has no observation site,
     #: but carrying the farm's own coordinates keeps every bundle comparable.
     latitude: float | None = None
@@ -113,6 +112,11 @@ class WeatherSeries:
     @property
     def end(self) -> date:
         return self.days[-1].day
+
+    @property
+    def label(self) -> str:
+        """Base-language provenance name — what the CLI prints for a series."""
+        return self.labels["zh"]
 
     def summary(self) -> dict[str, float | int]:
         """Season-level aggregates — the numbers worth printing or charting."""
@@ -135,9 +139,7 @@ class WeatherSeries:
         """Bundle/JSON metadata: provenance first, statistics second."""
         base: dict[str, Any] = {
             "source": self.source,
-            "label": self.label,
-            "label_en": self.label_en,
-            "label_es": self.label_es,
+            "labels": self.labels,
             "provider": self.provider,
             "latitude": None if self.latitude is None else round(self.latitude, 4),
             "longitude": None if self.longitude is None else round(self.longitude, 4),
@@ -454,9 +456,7 @@ class OpenMeteoClient:
         return WeatherSeries(
             days=tuple(series),
             source="open-meteo",
-            label="Open-Meteo · ERA5",
-            label_en="Open-Meteo · ERA5",
-            label_es="Open-Meteo · ERA5",
+            labels=localize("Open-Meteo · ERA5"),
             provider="Open-Meteo",
             latitude=latitude,
             longitude=longitude,

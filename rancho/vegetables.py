@@ -23,8 +23,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 
-from cropforge._plugins_base import CropPlugin, register_crop
-
+from rancho.cropforge_acl import CropPlugin, register_crop
 from rancho.crops import TEMPLATES, CropTemplate, CropTemplateError
 
 #: How fast the canopy still expands in each stage (1.0 = full rate).  A

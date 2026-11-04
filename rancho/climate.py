@@ -22,6 +22,7 @@ from typing import Final
 
 import numpy as np
 
+from rancho.i18n import localize
 from rancho.scenario import ClimateKind, SoilKind, SoilPattern
 from rancho.weather import WeatherDay, WeatherSeries
 
@@ -40,28 +41,13 @@ SYNTHETIC_EPOCH: Final = date(2026, 1, 1)
 #: ``water_balance`` engine is ever switched on — that one does walk the column.
 LAYERS: Final[tuple[tuple[float, float], ...]] = ((0.0, 20.0),)
 
-#: Display names for the climate profiles (Chinese UI labels).
-CLIMATE_LABELS: Final[dict[ClimateKind, str]] = {
-    "temperate": "温带",
-    "continental": "大陆性",
-    "semi-arid": "半干旱",
-    "tropical": "热带",
-}
-
-#: English climate-band names, parallel to :data:`CLIMATE_LABELS`.
-CLIMATE_LABELS_EN: Final[dict[ClimateKind, str]] = {
-    "temperate": "Temperate",
-    "continental": "Continental",
-    "semi-arid": "Semi-arid",
-    "tropical": "Tropical",
-}
-
-#: Spanish climate-band names, parallel to :data:`CLIMATE_LABELS`.
-CLIMATE_LABELS_ES: Final[dict[ClimateKind, str]] = {
-    "temperate": "Templado",
-    "continental": "Continental",
-    "semi-arid": "Semiárido",
-    "tropical": "Tropical",
+#: Display names for the climate profiles, one ``{lang: name}`` map per band.
+#: A new language is a new key in each inner map — not a new parallel dict.
+CLIMATE_LABELS: Final[dict[ClimateKind, dict[str, str]]] = {
+    "temperate": {"zh": "温带", "en": "Temperate", "es": "Templado"},
+    "continental": {"zh": "大陆性", "en": "Continental", "es": "Continental"},
+    "semi-arid": {"zh": "半干旱", "en": "Semi-arid", "es": "Semiárido"},
+    "tropical": {"zh": "热带", "en": "Tropical", "es": "Tropical"},
 }
 
 
@@ -204,12 +190,15 @@ def generate_weather(
             )
         )
 
+    band = CLIMATE_LABELS[climate]
     return WeatherSeries(
         days=tuple(series),
         source="synthetic",
-        label=f"合成气候 · {CLIMATE_LABELS[climate]}",
-        label_en=f"Synthetic · {CLIMATE_LABELS_EN[climate]}",
-        label_es=f"Sintético · {CLIMATE_LABELS_ES[climate]}",
+        labels=localize(
+            f"合成气候 · {band['zh']}",
+            en=f"Synthetic · {band['en']}",
+            es=f"Sintético · {band['es']}",
+        ),
         provider="Rancho 合成气候",
     )
 

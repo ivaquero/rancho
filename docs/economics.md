@@ -470,10 +470,10 @@ slope[d] = (DM_up[d] - DM_down[d]) * fresh / (0.2 * DLI_ref[d])
 
 **省掉的日志。** 这一层有个不体面的开销：`Farm.run()` 无条件把整田逐日状态编码成
 分区 Parquet，而探针一个字节都不读，读完就删。实测它占了单季的八成以上——写 0.12 s、
-删临时目录 0.05 s、真仿真 0.01 s。所以 `farm._Unlogged` 在跑季运行期间把 `StateLogger`
+删临时目录 0.05 s、真仿真 0.01 s。所以 `cropforge_acl._Unlogged` 在跑季运行期间把 `StateLogger`
 的 `record`/`flush` 换成空实现：其余一切照旧（会话目录、`log_path`、地形转储都还在），
 只是不再落盘。这是对 CropForge 内部的临时接管，不是它支持的开关；哪天要回日志，
-删掉这个类和 `_simulate` 里的 `_unlogged()` 即可。数值逐位不变（A/B 对照过）。
+删掉 ACL 里这个类和它的 `quiet_state_logger()` 包装（farm 侧只调 `quiet_state_logger()`）即可。数值逐位不变（A/B 对照过）。
 
 ## 命令行与产物
 

@@ -27,6 +27,7 @@ from cropforge.plugins.wheat import StandardWheat
 
 from rancho.agronomy import AgronomyModel
 from rancho.climate import build_soil_field, write_soil_csv
+from rancho.cropforge_acl import latest_session_dir
 from rancho.frames import SCHEMA_VERSION, build_bundle
 from rancho.mosaic import CropMosaic
 from rancho.scenario import MOSAIC_KEYS, ScenarioConfig, crop_grid, horizon_days, with_horizon
@@ -234,9 +235,7 @@ def run_scenario(
         farm.run(days=horizon_days(cfg))
     elapsed = time.perf_counter() - started
 
-    sessions = sorted((work_dir / "cropforge_output").glob("*"))
-    if not sessions:
-        raise RuntimeError("CropForge produced no state log for this run.")
+    log_dir = latest_session_dir(work_dir)
 
     try:
         yield_summary: dict[str, Any] | None = farm.yield_summary()
@@ -245,7 +244,7 @@ def run_scenario(
 
     return build_bundle(
         cfg=cfg,
-        log_dir=sessions[-1],
+        log_dir=log_dir,
         elevation=elevation,
         yield_summary=yield_summary,
         elapsed_s=elapsed,

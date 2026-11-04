@@ -1,11 +1,14 @@
 /** Wire format returned by `POST /api/runs` — see `rancho/frames.py`. */
 
+/** Localised name: language code → display string.
+ *
+ * The server ships the whole map (filled along es → en → zh) and the client
+ * picks the active language, so adding a language never changes this shape.
+ */
+export type Labels = Record<string, string>;
+
 export interface ChannelMeta {
-  label: string;
-  /** English label — the client picks this when the UI language is English. */
-  label_en: string;
-  /** Spanish label. */
-  label_es: string;
+  labels: Labels;
   unit: string;
   kind: "continuous" | "stage" | string;
   domain: [number, number];
@@ -37,11 +40,7 @@ export interface SeriesPoint {
 
 export interface WeatherMeta {
   source: "synthetic" | "open-meteo";
-  label: string;
-  /** English weather label. */
-  label_en?: string;
-  /** Spanish weather label. */
-  label_es?: string;
+  labels: Labels;
   provider: string;
   latitude: number | null;
   longitude: number | null;
@@ -66,11 +65,7 @@ export interface WeatherMeta {
 /** One selectable crop — what `/api/crops` returns. */
 export interface CropOption {
   key: string;
-  label: string;
-  /** English display name. */
-  label_en?: string | null;
-  /** Spanish display name. */
-  label_es?: string | null;
+  labels: Labels;
   species: string;
   mixable: boolean;
   season_gdd: number;
@@ -83,11 +78,7 @@ export interface CropOption {
 /** Per-crop harvest ledger inside the bundle. */
 export interface CropYield {
   key: string;
-  label: string;
-  /** English display name. */
-  label_en?: string | null;
-  /** Spanish display name. */
-  label_es?: string | null;
+  labels: Labels;
   cells: number;
   share: number;
   harvest_index: number;
@@ -102,11 +93,7 @@ export interface RunMeta {
   cols: number;
   days: number;
   crop: string;
-  crop_label?: string;
-  /** English crop name. */
-  crop_label_en?: string;
-  /** Spanish crop name. */
-  crop_label_es?: string;
+  crop_labels?: Labels;
   variety: string;
   sowing_doy: number;
   soil: string;
@@ -127,7 +114,7 @@ export interface RunMeta {
   /** True when the run planted more than one crop. */
   mosaic?: boolean;
   /** Every crop planted, in the order `grid.crop_index` indexes into. */
-  crops?: { key: string; label: string; label_en?: string; label_es?: string }[];
+  crops?: { key: string; labels: Labels }[];
 }
 
 export interface YieldSummary {
@@ -155,7 +142,7 @@ export interface Bundle {
     crop_index?: number[];
   };
   channels: Record<string, ChannelMeta>;
-  stages: { key: string; label: string; label_en?: string; label_es?: string }[];
+  stages: { key: string; labels: Labels }[];
   series: SeriesPoint[];
   frames: Frame[];
   yield: YieldSummary;
@@ -163,16 +150,8 @@ export interface Bundle {
 
 export interface Preset {
   id: string;
-  label: string;
-  /** English scenario name. */
-  label_en?: string;
-  /** Spanish scenario name. */
-  label_es?: string;
-  description: string;
-  /** English scenario description. */
-  description_en?: string;
-  /** Spanish scenario description. */
-  description_es?: string;
+  labels: Labels;
+  descriptions: Labels;
   config: Record<string, unknown>;
   /** The scenario the server opens on. */
   default?: boolean;

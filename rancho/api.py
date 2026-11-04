@@ -83,12 +83,8 @@ def create_app(work_root: Path, dist_dir: Path | None = None) -> FastAPI:
         return [
             {
                 "id": key,
-                "label": preset["label"],
-                "label_en": preset["label_en"],
-                "label_es": preset["label_es"],
-                "description": preset["description"],
-                "description_en": preset["description_en"],
-                "description_es": preset["description_es"],
+                "labels": preset["labels"],
+                "descriptions": preset["descriptions"],
                 "config": preset["config"],
                 # The client opens on this one, so the server decides rather
                 # than the frontend duplicating DEFAULT_PRESET.
@@ -103,9 +99,7 @@ def create_app(work_root: Path, dist_dir: Path | None = None) -> FastAPI:
         return [
             {
                 "key": key,
-                "label": template.label,
-                "label_en": template.label_en,
-                "label_es": template.label_es,
+                "labels": template.labels,
                 "species": template.species,
                 # Crops whose phenology CropForge owns cannot be planted per
                 # cell — see :data:`rancho.scenario.MOSAIC_KEYS`.
