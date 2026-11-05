@@ -125,7 +125,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "--farm-passes",
         type=int,
         default=3,
-        help="--growth farm 时市场与农场交替迭代的最大轮数（收敛即提前停止）",
+        help="--growth farm 时市场与农场交替迭代的最大轮数（至少 2 轮，收敛即提前停止）",
     )
     econ.add_argument("--out-dir", type=Path, default=Path("runs/econ"))
     econ.add_argument("--no-open", action="store_true", help="不自动打开 HTML 报告")
@@ -431,7 +431,7 @@ def _crops() -> int:
 
 def _econ(args: argparse.Namespace) -> int:
     """Run the greenhouse economics probe and write the report bundle."""
-    from rancho.econ.probe import probe
+    from rancho.econ.probe import MIN_COUPLED_PASSES, probe
     from rancho.econ.report import write_csv, write_html, write_json
     from rancho.econ.spec import SITES, TARIFFS
 
@@ -442,13 +442,19 @@ def _econ(args: argparse.Namespace) -> int:
     if not tariff_keys or unknown:
         raise SystemExit(f"未知电价情景：{', '.join(unknown) or args.tariff}")
 
+    if args.growth == "farm" and args.farm_passes < MIN_COUPLED_PASSES:
+        raise SystemExit(
+            f"--growth farm 至少需要 {MIN_COUPLED_PASSES} 轮 --farm-passes："
+            "首轮只是插件初值，还没有把农场实测的光响应反馈给市场"
+        )
+
     result = probe(
         site_key=args.site,
         days=args.days,
         seed=args.seed,
         tariff_keys=tariff_keys,
         growth=args.growth,
-        passes=max(1, args.farm_passes),
+        passes=args.farm_passes,
     )
 
     out_dir = Path(args.out_dir) / result.id

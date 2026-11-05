@@ -28,7 +28,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
-from rancho.econ.farm import MAX_PASSES, Coupling, FarmSeason
+from rancho.econ.farm import MAX_PASSES, MIN_COUPLED_PASSES, Coupling, FarmSeason
 from rancho.econ.model import NULL_SCALE, SOLO_SCALE, ArmResult, run_arm
 from rancho.econ.spec import CROPS, SITES, TARIFFS, CropSpec, SiteProfile, TariffSpec
 
@@ -226,6 +226,11 @@ def probe(
     site = SITES[site_key]
     crops: tuple[CropSpec, ...] = tuple(CROPS[key] for key in crop_keys)
     coupled = growth == "farm"
+    if coupled and passes < MIN_COUPLED_PASSES:
+        raise ValueError(
+            f"--growth farm 至少需要 {MIN_COUPLED_PASSES} 轮：首轮只是插件初值，"
+            "还没有把农场实测的光响应反馈给市场"
+        )
     setup = season if season is not None else FarmSeason()
     coupling: dict[str, Any] | None = None
 
@@ -349,7 +354,7 @@ def _coupled_arms(
     solo: ArmResult | None = None
     pooled: ArmResult | None = None
     null: ArmResult | None = None
-    for index in range(max(1, passes)):
+    for index in range(passes):
         solo = run_arm(
             site=site,
             tariff=tariff,
@@ -390,6 +395,12 @@ def _coupled_arms(
     return solo, pooled, null, loop.summary()
 
 
+def _denial_rate(denied: float, delivered: float) -> float:
+    """Share of one resource's demand that went unmet (both sides same units)."""
+    total = denied + delivered
+    return denied / total if total > 1e-12 else 0.0
+
+
 def _compare(solo: ArmResult, pooled: ArmResult) -> tuple[CropComparison, ...]:
     """Per-crop unit-cost and yield deltas, plus how much each crop lost."""
     solo_by = solo.by_crop()
@@ -399,7 +410,16 @@ def _compare(solo: ArmResult, pooled: ArmResult) -> tuple[CropComparison, ...]:
     for crop in pooled.crops:
         base = solo_by[crop.key]
         denied = crop.kwh_hvac_denied + crop.kwh_light_denied
-        requested = denied + crop.kwh_hvac_thermal + crop.kwh_light
+        # Each resource has its own capacity and its own units.  A single
+        # kWh-denominated ratio cannot see a starved well or an empty fertigation
+        # tank, so score the four markets separately and let the tightest one
+        # describe how constrained this crop was.
+        pressure = max(
+            _denial_rate(crop.kwh_hvac_denied, crop.kwh_hvac_thermal),
+            _denial_rate(crop.kwh_light_denied, crop.kwh_light),
+            _denial_rate(crop.m3_water_denied, crop.m3_water),
+            _denial_rate(crop.kg_fert_denied, crop.kg_fert),
+        )
         comparisons.append(
             CropComparison(
                 key=crop.key,
@@ -412,7 +432,7 @@ def _compare(solo: ArmResult, pooled: ArmResult) -> tuple[CropComparison, ...]:
                 delta_yield=_relative(crop.yield_kg, base.yield_kg),
                 denied_kwh=denied,
                 denied_share=denied / total_denied,
-                pressure=denied / requested if requested > 0.0 else 0.0,
+                pressure=pressure,
                 solo_margin=base.margin_yuan,
                 pooled_margin=crop.margin_yuan,
                 delta_margin=_relative(crop.margin_yuan, base.margin_yuan),
@@ -444,18 +464,29 @@ def _verdict(
 
     deltas = [item.delta_unit for item in comparisons]
     spread = max(deltas) - min(deltas) if deltas else 0.0
-    # Weighted denial rate across the two capacity-constrained channels.  The
-    # units differ (kWh_th vs kWh_e) but both are "energy the crop asked for
-    # and did not get", which is what the pressure metric is about.
-    # A house is capacity-constrained when *any* crop is being denied.  The
-    # house-wide average would hide a starved bed behind two satisfied ones,
-    # which is precisely the asymmetry the probe is looking for.
-    requested = sum(
-        crop.kwh_hvac_denied + crop.kwh_light_denied + crop.kwh_hvac_thermal + crop.kwh_light
-        for crop in pooled.crops
-    )
-    denied = sum(crop.kwh_hvac_denied + crop.kwh_light_denied for crop in pooled.crops)
-    average_pressure = denied / requested if requested > 0.0 else 0.0
+    # House-wide denial per resource.  Summing kWh_th with kWh_e or with m³
+    # would mix units and let a starved well disappear behind a slack grid, so
+    # each market keeps its own ratio and the tightest one is reported.
+    house_rates = {
+        "温控": _denial_rate(
+            sum(c.kwh_hvac_denied for c in pooled.crops),
+            sum(c.kwh_hvac_thermal for c in pooled.crops),
+        ),
+        "补光": _denial_rate(
+            sum(c.kwh_light_denied for c in pooled.crops),
+            sum(c.kwh_light for c in pooled.crops),
+        ),
+        "灌溉": _denial_rate(
+            sum(c.m3_water_denied for c in pooled.crops),
+            sum(c.m3_water for c in pooled.crops),
+        ),
+        "肥料": _denial_rate(
+            sum(c.kg_fert_denied for c in pooled.crops),
+            sum(c.kg_fert for c in pooled.crops),
+        ),
+    }
+    binding_resource = max(house_rates, key=lambda name: house_rates[name])
+    average_pressure = house_rates[binding_resource]
     pressure = max((item.pressure for item in comparisons), default=0.0)
 
     top = max(comparisons, key=lambda item: item.pressure) if comparisons else None
@@ -480,7 +511,8 @@ def _verdict(
     else:
         share = top.denied_share if top is not None else 0.0
         summary = (
-            f"通过：缺口集中在{binding_crop}（逾配 {pressure:.0%}，占总超配 {share:.0%}），"
+            f"通过：缺口集中在{binding_crop}（最紧资源 {binding_resource}，逾配 {pressure:.0%}，"
+            f"占总超配 {share:.0%}），"
             f"单位成本变动极差 {spread:.1%}，秩相关 {rho:+.2f}——"
             "竞争按边际价值排序，而不是平摊。"
         )
@@ -500,7 +532,14 @@ def _verdict(
 
 
 def _relative(value: float, base: float) -> float:
-    return (value - base) / base if abs(base) > 1e-12 else 0.0
+    """Relative change whose sign always means better or worse.
+
+    Dividing by a negative base flips the sign: a margin that fell from −120 to
+    −124 元 (a bigger loss) would read as +3.4 %.  The magnitude is the honest
+    denominator for a base that can be either sign; unit cost and yield, whose
+    bases are positive, are unchanged.
+    """
+    return (value - base) / abs(base) if abs(base) > 1e-12 else 0.0
 
 
 def _spearman(xs: list[float], ys: list[float]) -> float:

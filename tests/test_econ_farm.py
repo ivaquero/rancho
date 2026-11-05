@@ -89,7 +89,7 @@ def test_the_measured_table_matches_the_baseline_run_it_came_from(
 ) -> None:
     table = replace(lettuce_table, day=0)
     baseline = season_run(CROPS["lettuce"], _SEASON).dry_matter
-    fresh = 1.0 / CROPS["lettuce"].dry_matter_fraction
+    fresh = CROPS["lettuce"].fresh_per_dry
     for day, dry in enumerate(baseline):
         # The anchor is the baseline itself, so evaluating at the reference
         # light must return it — not a nearby number.  The cursor has to move
@@ -180,6 +180,29 @@ def test_the_coupled_probe_reports_a_converged_loop() -> None:
     assert coupling["converged"] is (coupling["residual"] < CONVERGENCE) or coupling["passes"] == 3
 
 
+def test_one_pass_cannot_claim_a_converged_coupling() -> None:
+    """Pass 0 is the plugin guess; a zero residual means nothing to compare."""
+    from rancho.econ.farm import Coupling, FarmSeason
+    from rancho.econ.probe import probe
+
+    with pytest.raises(ValueError, match="至少需要 2 轮"):
+        probe(
+            days=1,
+            growth="farm",
+            passes=1,
+            tariff_keys=("sv_horaria",),
+            crop_keys=("tomato",),
+        )
+
+    # A caller building the loop directly must not get a false "converged"
+    # from a single zero-residual pass either.
+    loop = Coupling(setup=FarmSeason())
+    loop.record(0, {"solo": 10.0, "pooled": 9.0})
+    assert loop.summary()["converged"] is False
+    loop.record(1, {"solo": 10.0, "pooled": 9.0})
+    assert loop.summary()["converged"] is True
+
+
 def test_the_coupled_backend_is_deterministic() -> None:
     from rancho.econ.probe import probe
 
@@ -217,9 +240,9 @@ def test_the_farm_and_the_plugin_backends_agree_on_the_same_season() -> None:
         plugin_total += plugin.production(dli)
         plugin.settle(dli, _SEASON.temp_mean[day])
 
-    # Fresh mass on both sides: the Farm reports dry matter, the plugin reports
-    # marketable fresh mass, and comparing them raw is a factor of ~17 apart.
-    fresh = 1.0 / CROPS["tomato"].dry_matter_fraction
+    # Both sides must use the shared conversion: the Farm reports total dry
+    # matter, the plugin reports marketable fresh mass (HI × grade ÷ dry matter).
+    fresh = CROPS["tomato"].fresh_per_dry
     farm_total = sum(run_season(CROPS["tomato"], _SEASON)) * fresh
     assert farm_total == pytest.approx(plugin_total, rel=0.02)
 

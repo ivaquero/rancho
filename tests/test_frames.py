@@ -22,7 +22,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from rancho.frames import SCHEMA_VERSION, build_bundle
+from rancho.frames import MODEL_VERSION, SCHEMA_VERSION, build_bundle
 from rancho.scenario import ScenarioConfig
 
 ROWS = 4
@@ -132,6 +132,7 @@ def test_the_bundle_is_stamped_with_the_schema_version(tmp_path) -> None:
         created_at="2026-01-01T00:00:00+00:00",
     )
     assert bundle["schema_version"] == SCHEMA_VERSION
+    assert bundle["model_version"] == MODEL_VERSION
 
 
 def test_a_channel_round_trips_through_the_uint8_codec(tmp_path) -> None:

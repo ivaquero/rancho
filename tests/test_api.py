@@ -17,13 +17,17 @@ from __future__ import annotations
 
 import asyncio
 import json
+from datetime import date
 from pathlib import Path
 from typing import Any
 
 from fastapi import HTTPException
 
+import rancho.api as api_module
 from rancho.api import RunRequest, _resolve, create_app
+from rancho.frames import MODEL_VERSION
 from rancho.scenario import DEFAULT_PRESET, PRESETS, ScenarioConfig
+from rancho.weather import ARCHIVE_URL, OpenMeteoClient, WeatherError
 
 
 def _request(app, method: str, path: str, body: dict[str, Any] | None = None) -> tuple[int, Any]:
@@ -74,6 +78,7 @@ def test_health_reports_the_version(tmp_path) -> None:
     status, body = _request(_app(tmp_path), "GET", "/api/health")
     assert status == 200
     assert body["status"] == "ok"
+    assert body["model_version"] == MODEL_VERSION
 
 
 def test_presets_mark_one_default_and_carry_every_label(tmp_path) -> None:
@@ -143,3 +148,40 @@ def test_resolve_rejects_an_unknown_preset() -> None:
         assert exc.status_code == 404
     else:
         raise AssertionError("an unknown preset must raise, not fall through")
+
+
+def test_an_escaping_run_id_is_a_404_and_touches_nothing(tmp_path) -> None:
+    """A decoded ``%5C`` path parameter must not delete a file outside root."""
+    outside = tmp_path / "outside.json.gz"
+    outside_meta = tmp_path / "outside.meta.json"
+    outside.write_bytes(b"keep me")
+    outside_meta.write_text("{}", encoding="utf-8")
+
+    app = _app(tmp_path)
+    for method in ("GET", "DELETE"):
+        status, _ = _request(app, method, "/api/runs/..\\outside")
+        assert status == 404
+    assert outside.exists() and outside_meta.exists()
+
+
+def test_posting_a_run_maps_a_weather_failure_to_502(tmp_path, monkeypatch) -> None:
+    """``fallback=False`` + an outage is an upstream 502, not a 500."""
+
+    def fail(*_args, **_kwargs):
+        raise WeatherError("气象服务不可用")
+
+    monkeypatch.setattr(api_module, "run_scenario", fail)
+    status, body = _request(_app(tmp_path), "POST", "/api/runs", {"preset": DEFAULT_PRESET})
+    assert status == 502
+    assert "气象服务不可用" in body["detail"]
+
+
+def test_weather_cache_keys_match_the_request_precision(tmp_path) -> None:
+    """Two coordinates that differ only in the 4th decimal must not share a file."""
+    client = OpenMeteoClient(cache_dir=tmp_path)
+    start, end = date(2025, 1, 1), date(2025, 1, 30)
+    a = client._cache_path(ARCHIVE_URL, 13.69004, -89.22004, start, end)
+    b = client._cache_path(ARCHIVE_URL, 13.69009, -89.22009, start, end)
+    assert a is not None and b is not None and a != b
+    url = client._build_url(ARCHIVE_URL, 13.69004, -89.22004, start, end)
+    assert "latitude=13.6900" in url and "13.6900" in a.name

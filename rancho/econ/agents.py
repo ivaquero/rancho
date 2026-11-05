@@ -32,6 +32,11 @@ from typing import TYPE_CHECKING
 
 from mesa import Agent
 
+from rancho.agronomy import (
+    MINERALISATION_KG_HA_DAY,
+    N_HALF_SATURATION,
+    water_stress_ks,
+)
 from rancho.econ.growth import GrowthFactory, LightResponse, resolve_growth
 from rancho.econ.records import DayRecord, HourRecord
 from rancho.econ.spec import (
@@ -50,11 +55,8 @@ from rancho.econ.spec import (
 if TYPE_CHECKING:
     from rancho.econ.model import GreenhouseModel
 
-#: Plant-available nitrogen half-saturation, mirrored from the physics layer so
-#: that the economic response curve and the agronomic one cannot diverge.
-N_HALF_SATURATION = 28.0
-#: Daily net mineralisation from soil organic matter (kg N/ha/day).
-N_MINERALISATION = 0.35
+#: Nitrogen half-saturation and mineralisation come from :mod:`rancho.agronomy`
+#: rather than being mirrored here: the bidding layer must see the same soil.
 #: Nitrogen mass fraction of the fertigation blend.
 FERT_N_FRACTION = 0.20
 
@@ -391,12 +393,15 @@ class CropAgent(Agent):
         return float(max(1, horizon - elapsed))
 
     def _water_factor_at(self, moisture_pct: float) -> float:
-        span = max(
-            1e-6,
-            self.spec.depletion_fraction
-            * (self.spec.field_capacity_pct - self.spec.wilting_point_pct),
+        """The field engine's FAO-56 ``Ks``, not a second implementation of it."""
+        return float(
+            water_stress_ks(
+                moisture_pct,
+                self.spec.wilting_point_pct,
+                self.spec.field_capacity_pct,
+                self.spec.depletion_fraction,
+            )
         )
-        return min(1.0, max(0.0, (moisture_pct - self.spec.wilting_point_pct) / span))
 
     # ------------------------------------------------------------------
     # Delivery
@@ -508,10 +513,15 @@ class CropAgent(Agent):
             self.moisture_pct - etc / spec.root_zone_mm * 100.0,
         )
 
-        uptake = growth * spec.dry_matter_fraction * 10.0 * spec.n_concentration
+        # Nitrogen is taken up by the whole canopy, not just the organ that is
+        # sold.  Translate marketable fresh growth back to total above-ground
+        # dry matter before applying the crop's N concentration (g/m² → kg/ha
+        # is the factor of 10).
+        total_dry_g_m2 = growth / spec.fresh_per_dry
+        uptake = total_dry_g_m2 * 10.0 * spec.n_concentration
         self.n_kg_ha = max(
             1.5,
-            self.n_kg_ha + N_MINERALISATION + self.fert_n_day - uptake,
+            self.n_kg_ha + MINERALISATION_KG_HA_DAY + self.fert_n_day - uptake,
         )
 
         record = DayRecord(

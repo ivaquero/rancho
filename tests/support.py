@@ -36,6 +36,10 @@ def make_snapshot(
     light_kwh: float = 0.0,
     denied_hvac: float = 0.0,
     denied_light: float = 0.0,
+    water_m3: float = 0.0,
+    fert_kg: float = 0.0,
+    denied_water: float = 0.0,
+    denied_fert: float = 0.0,
     price: float = 12.0,
 ) -> CropSnapshot:
     """One crop's end-of-arm totals, with only the fields the probe reads set."""
@@ -60,12 +64,12 @@ def make_snapshot(
         kwh_light=light_kwh,
         kwh_hvac=0.0,
         kwh_hvac_thermal=thermal_kwh,
-        m3_water=0.0,
-        kg_fert=0.0,
+        m3_water=water_m3,
+        kg_fert=fert_kg,
         kwh_light_denied=denied_light,
         kwh_hvac_denied=denied_hvac,
-        m3_water_denied=0.0,
-        kg_fert_denied=0.0,
+        m3_water_denied=denied_water,
+        kg_fert_denied=denied_fert,
         revenue_yuan=revenue,
         margin_yuan=revenue - cost_total,
     )

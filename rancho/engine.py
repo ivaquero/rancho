@@ -28,7 +28,8 @@ from cropforge.plugins.wheat import StandardWheat
 from rancho.agronomy import AgronomyModel
 from rancho.climate import build_soil_field, write_soil_csv
 from rancho.cropforge_acl import latest_session_dir
-from rancho.frames import SCHEMA_VERSION, build_bundle
+from rancho.crops import TEMPLATES
+from rancho.frames import MODEL_VERSION, SCHEMA_VERSION, build_bundle
 from rancho.mosaic import CropMosaic
 from rancho.scenario import MOSAIC_KEYS, ScenarioConfig, crop_grid, horizon_days, with_horizon
 from rancho.vegetables import PLUGINS as VEGETABLE_PLUGINS
@@ -70,19 +71,33 @@ def _engine_slot(wait: bool = True) -> Generator[None]:
         _RUN_LOCK.release()
 
 
+def _templates_fingerprint() -> str:
+    """Hash of the bundled TOML parameters every run reads.
+
+    Templates are the single source for phenology, water, nitrogen and product
+    coefficients, so editing ``crops/tomato.toml`` changes the result of a run
+    without changing its config.  Hashing the parsed templates (rather than the
+    file bytes) keeps whitespace and comment edits from needlessly invalidating
+    the cache, and reading the live dict means a reload picks up the new value.
+    """
+    payload = "|".join(f"{key}:{TEMPLATES[key].model_dump_json()}" for key in sorted(TEMPLATES))
+    return hashlib.sha1(payload.encode("utf-8")).hexdigest()[:12]
+
+
 def run_id_for(cfg: ScenarioConfig) -> str:
     """Stable identifier for a scenario — identical configs reuse the cached run.
 
     The horizon is resolved first: a field left to run until its crop matures
     *is* the same run as the same field with that number of days written in.
 
-    The bundle schema version is folded into the hash, so changing the render
-    format (a channel, the quantisation, the label shape) yields a different
-    identifier: the old disk cache is simply never looked up again rather than
-    replayed as stale bytes against a client that has moved on.
+    Three more inputs go into the hash, all of them things that change a result
+    without changing ``cfg``: the bundle schema version (render format), the
+    model version (:mod:`rancho.frames`, physics formulas and CropForge), and a
+    fingerprint of the crop templates.  A stale disk bundle then simply gets a
+    new key and is never looked up again.
     """
     payload = with_horizon(cfg).model_dump_json()
-    key = f"{SCHEMA_VERSION}:{payload}"
+    key = f"{SCHEMA_VERSION}:{MODEL_VERSION}:{_templates_fingerprint()}:{payload}"
     return hashlib.sha1(key.encode("utf-8")).hexdigest()[:12]
 
 

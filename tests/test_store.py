@@ -11,7 +11,10 @@ from __future__ import annotations
 
 import json
 
-from rancho.store import RunStore
+import pytest
+
+from rancho.frames import MODEL_VERSION, SCHEMA_VERSION
+from rancho.store import RunStore, valid_run_id
 
 
 def _bundle(run_id: str) -> dict:
@@ -123,3 +126,48 @@ def test_the_listing_drops_runs_of_another_schema_version(tmp_path) -> None:
     assert [item["id"] for item in RunStore(tmp_path, schema_version=1).summaries()] == ["fresh"]
     # No version enforced: everything is listed, stale sidecar included.
     assert {item["id"] for item in RunStore(tmp_path).summaries()} == {"fresh", "stale"}
+
+
+def test_only_plain_filename_stems_are_valid_run_ids() -> None:
+    """A run id is a filename stem, never a path — on Windows ``\\`` is one too."""
+    assert valid_run_id("1682e8db2462")
+    assert valid_run_id("run-01_A")
+    for bad in ("", "..", "..\\outside", "../outside", "a/b", "C:\\tmp\\x", "a.json.gz", "a b"):
+        assert not valid_run_id(bad)
+
+
+def test_an_escaping_run_id_cannot_read_or_delete_outside_root(tmp_path) -> None:
+    """The exact regression: DELETE /api/runs/..\\..\\outside removed a stranger."""
+    root = tmp_path / "bundles"
+    root.mkdir()
+    outside = tmp_path / "outside.json.gz"
+    outside_meta = tmp_path / "outside.meta.json"
+    outside.write_bytes(b"keep me")
+    outside_meta.write_text("{}", encoding="utf-8")
+
+    store = RunStore(root)
+    assert store.get("..\\outside") is None
+    assert store.delete("..\\outside") is False
+    assert outside.exists() and outside_meta.exists()
+
+
+def test_put_refuses_an_unsafe_run_id(tmp_path) -> None:
+    """Silently dropping such a bundle would lose the run without a trace."""
+    with pytest.raises(ValueError, match="非法运行编号"):
+        RunStore(tmp_path).put(_bundle("..\\outside"))
+
+
+def test_a_stale_model_version_is_never_served_or_listed(tmp_path) -> None:
+    """Same wire shape, older physics: the schema stamp alone cannot catch it."""
+    writer = RunStore(tmp_path)
+    old = _bundle("oldmodel")
+    old["schema_version"] = SCHEMA_VERSION
+    old["model_version"] = MODEL_VERSION - 1
+    writer.put(old)
+
+    current = RunStore(tmp_path, schema_version=SCHEMA_VERSION, model_version=MODEL_VERSION)
+    assert current.get("oldmodel") is None
+    assert current.summaries() == []
+    # A store that enforces neither version still sees the file: the stamp is
+    # what excludes it, not the filesystem.
+    assert RunStore(tmp_path).get("oldmodel") is not None

@@ -323,6 +323,18 @@ CropForge 的 Parquet 日志按**进程工作目录**解析，所以同一进程
 
 交互式文档：`/api/docs`。
 
+### 缓存与模型版本
+
+`run_id` = hash(场景配置 + `SCHEMA_VERSION` + `MODEL_VERSION` + 全部作物模板的解析结果)。
+`SCHEMA_VERSION`（`rancho/frames.py`）管 bundle 的**形状**，`MODEL_VERSION` 管**数值口径**，
+模板摘要让 `rancho/crops/*.toml` 的改动自动使缓存失效——三者都不在配置里，但都会改变结果。
+
+- **改 TOML 参数**：重启服务、重新点「运行仿真」即可；模板摘要变了，`run_id` 自动变化。
+- **改农艺/经济公式、气候生成或升级 CropForge**：先把 `rancho/frames.py` 的
+  `MODEL_VERSION` **加 1**，再重启重跑。公式无法被缓存键感知，忘记加 1 会静默拿到旧数值。
+- `/api/health` 报出当前两个版本；每个 bundle 带 `model_version`，`/api/runs` 会跳过
+  版本不符的旧缓存。旧文件仍留在 `<work-dir>/bundles/`，需要空间时手动清理。
+
 ## 校验
 
 ```bash
@@ -331,7 +343,7 @@ uv run pytest
 cd frontend && pnpm lint && pnpm fmt:check && pnpm typecheck && pnpm build
 ```
 
-`pytest` 是唯一的开发依赖（`uv add --group dev pytest`）；165 个用例约六秒，不联网
+`pytest` 是唯一的开发依赖（`uv add --group dev pytest`）；191 个用例约十二秒，不联网
 （`test_econ_farm.py` 里每个用例都在真跑农场季运行，`test_mosaic.py` 里有一个 4×6 混作的
 端到端小跑）。覆盖范围见 [`docs/economics.md`](docs/economics.md#测试)、
 [`docs/crops.md`](docs/crops.md#加载时校验)。

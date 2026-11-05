@@ -16,7 +16,7 @@ from pydantic import BaseModel
 from rancho import __version__
 from rancho.crops import TEMPLATES
 from rancho.engine import RunBusyError, run_id_for, run_scenario
-from rancho.frames import SCHEMA_VERSION
+from rancho.frames import MODEL_VERSION, SCHEMA_VERSION
 from rancho.scenario import (
     DEFAULT_PRESET,
     MOSAIC_KEYS,
@@ -25,7 +25,7 @@ from rancho.scenario import (
     horizon_days,
     season_days,
 )
-from rancho.store import RunStore
+from rancho.store import RunStore, valid_run_id
 from rancho.weather import WeatherError, fetch_weather
 
 logger = logging.getLogger("rancho.api")
@@ -64,7 +64,11 @@ def _resolve(request: RunRequest) -> ScenarioConfig:
 
 def create_app(work_root: Path, dist_dir: Path | None = None) -> FastAPI:
     """Build the FastAPI app serving the API and (optionally) the built client."""
-    store = RunStore(work_root / "bundles", schema_version=SCHEMA_VERSION)
+    store = RunStore(
+        work_root / "bundles",
+        schema_version=SCHEMA_VERSION,
+        model_version=MODEL_VERSION,
+    )
     app = FastAPI(
         title="Rancho · 农田作物仿真台",
         version=__version__,
@@ -76,7 +80,13 @@ def create_app(work_root: Path, dist_dir: Path | None = None) -> FastAPI:
 
     @app.get("/api/health")
     def health() -> dict[str, Any]:
-        return {"status": "ok", "version": __version__, "engine": "cropforge"}
+        return {
+            "status": "ok",
+            "version": __version__,
+            "engine": "cropforge",
+            "schema_version": SCHEMA_VERSION,
+            "model_version": MODEL_VERSION,
+        }
 
     @app.get("/api/presets")
     def list_presets() -> list[dict[str, Any]]:
@@ -200,18 +210,25 @@ def create_app(work_root: Path, dist_dir: Path | None = None) -> FastAPI:
             # Refusing beats queueing: the caller learns in milliseconds that
             # the engine is busy instead of waiting out someone else's run.
             raise HTTPException(status_code=503, detail=str(exc)) from exc
+        except WeatherError as exc:
+            # ``fallback=False`` turns an unreachable provider into a hard
+            # failure.  It is an upstream outage, not a broken simulation, so
+            # report it as 502 exactly like /api/weather does.
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
         store.put(bundle)
         return bundle
 
     @app.get("/api/runs/{run_id}")
     def get_run(run_id: str) -> dict[str, Any]:
-        bundle = store.get(run_id)
+        bundle = store.get(run_id) if valid_run_id(run_id) else None
         if bundle is None:
             raise HTTPException(status_code=404, detail=f"未知运行：{run_id}")
         return bundle
 
     @app.delete("/api/runs/{run_id}")
     def delete_run(run_id: str) -> dict[str, bool]:
+        if not valid_run_id(run_id):
+            raise HTTPException(status_code=404, detail=f"未知运行：{run_id}")
         return {"deleted": store.delete(run_id)}
 
     if dist_dir is not None and (dist_dir / "index.html").exists():

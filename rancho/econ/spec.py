@@ -201,6 +201,27 @@ class CropSpec:
     def dry_matter_fraction(self) -> float:
         return CROP_PROFILES[self.key].dry_matter_fraction
 
+    @property
+    def harvest_index(self) -> float:
+        return CROP_PROFILES[self.key].harvest_index
+
+    @property
+    def marketable_fraction(self) -> float:
+        return CROP_PROFILES[self.key].marketable_fraction
+
+    @property
+    def fresh_per_dry(self) -> float:
+        """Marketable fresh mass per gram of *total* above-ground dry matter.
+
+        The one conversion every production backend and ``frames._crop_yields``
+        must share: biomass is partitioned into the harvested organ (HI),
+        graded (marketable), and sold fresh (dry-matter fraction).  Multiplying
+        by only ``1 / dry_matter_fraction`` prices stems and leaves as produce
+        and inflates vegetables by 1.4–3.4×.
+        """
+        profile = CROP_PROFILES[self.key]
+        return profile.harvest_index * profile.marketable_fraction / profile.dry_matter_fraction
+
     def setpoint(self, hour: int) -> float:
         """Daytime setpoint between 06:00 and 18:00, night setpoint otherwise."""
         return self.setpoint_day_c if 6 <= hour < 18 else self.setpoint_night_c

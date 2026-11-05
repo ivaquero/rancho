@@ -71,6 +71,27 @@ CROP_WATER: dict[str, CropWaterParams] = {
     key: _water_from(template) for key, template in TEMPLATES.items()
 }
 
+
+def water_stress_ks(
+    moisture: Any,
+    wilting_point: Any,
+    field_capacity: Any,
+    depletion_fraction: Any,
+) -> Any:
+    """FAO-56 ``Ks`` from root-zone depletion — the single, shared definition.
+
+    Readily available water is ``(1 - p) · (FC - WP)``: ``p`` is the depletion
+    fraction *beyond which* stress begins, so multiplying by ``p`` instead
+    makes the stressed band far too wide and systematically understates water
+    limitation.  Both the field engine and the economic bidding layer call this
+    function: if they priced different water, their conclusions would diverge.
+
+    Inputs may be scalars or NumPy arrays; the result follows the input shape.
+    """
+    raw = np.maximum(1e-6, (1.0 - depletion_fraction) * (field_capacity - wilting_point))
+    return np.clip((moisture - wilting_point) / raw, 0.0, 1.0)
+
+
 #: Half-saturation constant of the Mitscherlich nitrogen response (kg/ha).
 N_HALF_SATURATION = 28.0
 #: Daily net mineralisation from soil organic matter (kg N/ha/day).
@@ -243,8 +264,9 @@ class AgronomyModel:
         self._moisture += (inflow + pooled + irrigation) / self._root_zone * 100.0
         np.minimum(self._moisture, soil.field_capacity + 1.5, out=self._moisture)
 
-        span = np.maximum(1e-6, self._depletion * (soil.field_capacity - soil.wilting_point))
-        stress = np.clip((self._moisture - soil.wilting_point) / span, 0.0, 1.0)
+        stress = water_stress_ks(
+            self._moisture, soil.wilting_point, soil.field_capacity, self._depletion
+        )
 
         demand = max(0.0, float(env.et0_mm)) * self._kc * stress
         self._moisture -= demand / self._root_zone * 100.0

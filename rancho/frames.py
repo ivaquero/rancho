@@ -100,6 +100,18 @@ _QUANT_MAX: Final = 255.0
 #: new run gets a new key) and checked on read (:class:`rancho.store.RunStore`).
 SCHEMA_VERSION: Final = 2
 
+#: Version of the agronomy/economics model that produced the *numbers*.
+#:
+#: ``SCHEMA_VERSION`` protects the shape of a bundle, but a run made before the
+#: water-stress coefficient or the yield conversion was fixed has exactly the
+#: same JSON layout — only the values differ.  Bump this whenever a formula, a
+#: bundled crop parameter or the CropForge version changes a simulated result.
+#: It is folded into ``run_id`` (so a new run gets a new key) and stamped into
+#: the bundle (so older runs leave the listing instead of being replayed).
+#: Version history — 1: original coefficients; 2: FAO-56 Ks denominator and
+#: marketable-yield conversion unified across the field engine and the economy.
+MODEL_VERSION: Final = 2
+
 
 def _read_table(log_dir: Path, name: str) -> pd.DataFrame:
     """Read one Parquet dataset, normalising the ``day`` partition column.
@@ -374,6 +386,7 @@ def build_bundle(
         "id": run_id,
         "created_at": created_at,
         "schema_version": SCHEMA_VERSION,
+        "model_version": MODEL_VERSION,
         "meta": {
             "name": cfg.name,
             "rows": rows,

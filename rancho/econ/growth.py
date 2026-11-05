@@ -226,7 +226,7 @@ class CropForgeGrowth:
 
     def _fresh_per_mj(self) -> float:
         """Marketable fresh mass produced per MJ of intercepted PAR."""
-        return self.plugin.rue / self.spec.dry_matter_fraction
+        return self.plugin.rue * self.spec.fresh_per_dry
 
 
 def transplant_stage(plugin: GreenhouseVegetable) -> tuple[str, float]:

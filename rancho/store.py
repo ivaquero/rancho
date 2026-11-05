@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import gzip
 import json
+import re
 import zlib
 from collections import OrderedDict
 from pathlib import Path
@@ -15,6 +16,16 @@ from typing import Any
 #: a swap.  Disk is the real cache; this tier only saves re-reading it.
 MEMORY_BUNDLES = 4
 
+#: A run id is a filename stem the engine generates (12 hex chars today).
+#: Accepting anything else lets a URL path parameter walk out of ``root`` with
+#: ``..\`` or an absolute path and read or delete files the cache does not own.
+_RUN_ID_RE = re.compile(r"[A-Za-z0-9_-]{1,64}\Z")
+
+
+def valid_run_id(run_id: str) -> bool:
+    """Whether *run_id* can only name a file inside the cache directory."""
+    return _RUN_ID_RE.fullmatch(run_id) is not None
+
 
 class RunStore:
     """Persist bundles so that re-opening the app does not re-simulate."""
@@ -24,6 +35,7 @@ class RunStore:
         root: Path,
         memory_size: int = MEMORY_BUNDLES,
         schema_version: int | None = None,
+        model_version: int | None = None,
     ) -> None:
         self.root = root
         self.root.mkdir(parents=True, exist_ok=True)
@@ -33,6 +45,10 @@ class RunStore:
         #: The disk cache outlives code upgrades; without this an old-shape run
         #: would be replayed against a client that has moved on.
         self.schema_version = schema_version
+        #: Same idea for the physics.  Two runs with a different water-stress
+        #: formula have the *same* wire shape, so the schema stamp cannot tell
+        #: them apart — only an explicit model stamp keeps old numbers out.
+        self.model_version = model_version
 
     def _bundle_path(self, run_id: str) -> Path:
         return self.root / f"{run_id}.json.gz"
@@ -48,10 +64,10 @@ class RunStore:
             self._memory.popitem(last=False)
 
     def _stale(self, bundle: dict[str, Any]) -> bool:
-        """Whether *bundle* predates the schema this store insists on."""
-        return self.schema_version is not None and bundle.get("schema_version") != (
-            self.schema_version
-        )
+        """Whether *bundle* predates the schema or model this store insists on."""
+        return (
+            self.schema_version is not None and bundle.get("schema_version") != self.schema_version
+        ) or (self.model_version is not None and bundle.get("model_version") != self.model_version)
 
     def get(self, run_id: str) -> dict[str, Any] | None:
         """Return a bundle from memory, else from disk, else ``None``.
@@ -60,6 +76,8 @@ class RunStore:
         reconstructible, so a corrupt gzip stream or JSON must send the caller
         back to the simulator rather than surface as a failed request.
         """
+        if not valid_run_id(run_id):
+            return None
         cached = self._memory.get(run_id)
         if cached is not None:
             self._memory.move_to_end(run_id)
@@ -96,6 +114,10 @@ class RunStore:
         the run listing can drop entries the current code can no longer render.
         """
         run_id = str(bundle["id"])
+        if not valid_run_id(run_id):
+            # Only the engine produces ids, so this is a programming error,
+            # not a request to shrug off: writing outside root loses the run.
+            raise ValueError(f"非法运行编号：{run_id!r}")
         self._remember(run_id, bundle)
         bundle_path = self._bundle_path(run_id)
         temp = bundle_path.with_name(f"{bundle_path.name}.tmp")
@@ -106,6 +128,7 @@ class RunStore:
             "id": run_id,
             "created_at": bundle["created_at"],
             "schema_version": bundle.get("schema_version"),
+            "model_version": bundle.get("model_version"),
             "meta": bundle["meta"],
             "yield": bundle["yield"],
         }
@@ -113,6 +136,8 @@ class RunStore:
 
     def delete(self, run_id: str) -> bool:
         """Drop a run from both tiers. Returns ``True`` if anything was removed."""
+        if not valid_run_id(run_id):
+            return False
         existed = self._memory.pop(run_id, None) is not None
         for path in (self._bundle_path(run_id), self._meta_path(run_id)):
             if path.exists():
@@ -123,9 +148,9 @@ class RunStore:
     def summaries(self) -> list[dict[str, Any]]:
         """Summaries of all stored runs, newest first.
 
-        When a schema version is enforced, sidecars stamped with another version
-        are skipped: a run recorded by older code would list fine but fail to
-        render, which is worse than not offering it at all.
+        When a schema or model version is enforced, sidecars stamped with another
+        version are skipped: a run recorded by older code would list fine but
+        fail to render — or worse, silently show numbers from an older model.
         """
         summaries: list[dict[str, Any]] = []
         for path in self.root.glob("*.meta.json"):
@@ -133,10 +158,7 @@ class RunStore:
                 summary = json.loads(path.read_text(encoding="utf-8"))
             except OSError, json.JSONDecodeError:
                 continue
-            if (
-                self.schema_version is not None
-                and summary.get("schema_version") != self.schema_version
-            ):
+            if self._stale(summary):
                 continue
             summaries.append(summary)
         summaries.sort(key=lambda item: str(item.get("created_at", "")), reverse=True)

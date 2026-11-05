@@ -59,6 +59,13 @@ def test_relative_change_guards_against_a_zero_base() -> None:
     assert _relative(5.0, 0.0) == 0.0
 
 
+def test_a_negative_base_keeps_the_direction_of_the_change() -> None:
+    """A loss growing from −119.658 to −123.744 must read as negative."""
+    assert _relative(-123.744, -119.658) < 0.0
+    assert _relative(-115.0, -119.658) > 0.0
+    assert _relative(-123.744, -119.658) == pytest.approx(-4.086 / 119.658)
+
+
 def test_compare_prices_pressure_against_what_the_crop_asked_for() -> None:
     solo = make_arm("solo", [make_snapshot("tomato", yield_kg=100.0, cost_total=300.0)])
     pooled = make_arm(
@@ -76,11 +83,39 @@ def test_compare_prices_pressure_against_what_the_crop_asked_for() -> None:
         ],
     )
     (item,) = _compare(solo, pooled)
-    # Requested = 40 + 10 + 30 + 20 = 100; denied 50 of it.
-    assert item.pressure == pytest.approx(0.5)
+    # Each resource keeps its own units: thermal 30/(30+40)=0.429, lighting
+    # 20/(20+10)=0.667.  Pooling them into 50/100 hid the tighter market.
+    assert item.pressure == pytest.approx(20.0 / 30.0)
     assert item.denied_share == pytest.approx(1.0)
     assert item.delta_unit == pytest.approx((240.0 / 90.0 - 3.0) / 3.0)
     assert item.delta_yield == pytest.approx(-0.1)
+
+
+def test_a_water_shortfall_is_capacity_pressure_even_with_a_slack_grid() -> None:
+    """Only the well is tight: the kWh-only verdict used to call this slack."""
+    solo = make_arm(
+        "solo",
+        [
+            make_snapshot("a", yield_kg=100.0, cost_total=300.0),
+            make_snapshot("b", yield_kg=100.0, cost_total=300.0),
+        ],
+    )
+    pooled = make_arm(
+        "pooled",
+        [
+            make_snapshot("a", yield_kg=100.0, cost_total=240.0, water_m3=1.0, denied_water=3.0),
+            make_snapshot("b", yield_kg=100.0, cost_total=300.0, water_m3=4.0),
+        ],
+    )
+    comparisons = _compare(solo, pooled)
+    verdict = _verdict(solo, pooled, make_arm("null", solo.crops), comparisons)
+
+    assert comparisons[0].pressure == pytest.approx(0.75)
+    assert verdict.pressure > MIN_PRESSURE
+    assert verdict.average_pressure == pytest.approx(3.0 / 8.0)
+    assert verdict.passed is True
+    assert "灌溉" in verdict.summary
+    assert "容量基本不紧" not in verdict.summary
 
 
 def test_denied_share_is_the_crops_slice_of_the_house_total() -> None:

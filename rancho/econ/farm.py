@@ -75,6 +75,9 @@ FARM_GRID = 6
 LIGHT_PROBE = 0.10
 #: Coupling passes before the loop is stopped regardless of the residual.
 MAX_PASSES = 3
+#: Pass 0 is the plugin's initial guess — the Farm has measured nothing yet,
+#: so fewer than two passes cannot honestly claim a converged coupling.
+MIN_COUPLED_PASSES = 2
 #: Stop early when no arm's total yield moves more than this between passes.
 CONVERGENCE = 0.01
 
@@ -242,8 +245,9 @@ def measure_table(
 ) -> FarmTable:
     """Measure one crop's light response by three Farm seasons.
 
-    Returns the baseline level in marketable fresh mass (dry matter scaled by
-    the crop's dry-matter fraction) and the central-difference slope.
+    Returns the baseline level in marketable fresh mass (total dry matter
+    scaled by the shared ``CropSpec.fresh_per_dry`` conversion) and the
+    central-difference slope.
     """
     baseline = season_run(spec, season, light_scale=1.0, setup=setup)
     base = baseline.dry_matter
@@ -396,8 +400,8 @@ def _write_soil(path: Path, spec: CropSpec) -> None:
 
 
 def _fresh_per_dry(spec: CropSpec) -> float:
-    """Marketable fresh mass per gram of dry matter."""
-    return 1.0 / spec.dry_matter_fraction
+    """Marketable fresh mass per gram of total dry matter (shared with growth)."""
+    return spec.fresh_per_dry
 
 
 @dataclass(slots=True)
@@ -450,10 +454,17 @@ class Coupling:
     def summary(self) -> dict[str, Any]:
         """Serialisable record of the loop, for ``probe.json`` and the report."""
         last = self.history[-1] if self.history else None
+        # A zero residual on pass 0 means "nothing to compare against", not
+        # "the loop converged": the Farm has not been refitted even once.
+        converged = (
+            len(self.history) >= MIN_COUPLED_PASSES
+            and last is not None
+            and last.residual < CONVERGENCE
+        )
         return {
             "passes": len(self.history),
             "residual": round(last.residual, 5) if last else None,
-            "converged": bool(last and last.residual < CONVERGENCE),
+            "converged": converged,
             "grid": self.setup.grid,
             "light_probe": self.light_probe,
             "history": [report.as_dict() for report in self.history],

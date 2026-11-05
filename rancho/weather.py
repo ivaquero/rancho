@@ -336,7 +336,9 @@ class OpenMeteoClient:
         if self.cache_dir is None:
             return None
         kind = "forecast" if endpoint == FORECAST_URL else "archive"
-        name = f"{kind}_{latitude:.3f}_{longitude:.3f}_{start}_{end}.json"
+        # Keep the same coordinate precision as the request URL (4 dp): at 3 dp
+        # two neighbouring coordinates that ask for different data shared a file.
+        name = f"{kind}_{latitude:.4f}_{longitude:.4f}_{start}_{end}.json"
         return self.cache_dir / "open-meteo" / name
 
     def _load(
