@@ -64,14 +64,20 @@ class CropComparison:
     #: yuan difference instead — see :attr:`margin_flat`.
     delta_margin_yuan: float
     margin_flat: bool
+    #: False when either arm harvested nothing.  A zero-yield bed has no
+    #: yuan/kg at all — the ledger still carries its costs — so its unit costs
+    #: and their ratio must be shown as incomparable, not as "0 元/kg" with a
+    #: 0 % delta that would make a total loss look like the cheapest crop.
+    comparable: bool = True
 
     def as_dict(self) -> dict[str, Any]:
         return {
             "key": self.key,
             "label": self.label,
-            "solo_unit_cost": round(self.solo_unit_cost, 4),
-            "pooled_unit_cost": round(self.pooled_unit_cost, 4),
-            "delta_unit_pct": round(self.delta_unit * 100.0, 2),
+            "solo_unit_cost": round(self.solo_unit_cost, 4) if self.comparable else None,
+            "pooled_unit_cost": round(self.pooled_unit_cost, 4) if self.comparable else None,
+            "comparable": self.comparable,
+            "delta_unit_pct": round(self.delta_unit * 100.0, 2) if self.comparable else None,
             "solo_yield_kg": round(self.solo_yield, 2),
             "pooled_yield_kg": round(self.pooled_yield, 2),
             "delta_yield_pct": round(self.delta_yield * 100.0, 2),
@@ -410,6 +416,10 @@ def _compare(solo: ArmResult, pooled: ArmResult) -> tuple[CropComparison, ...]:
     for crop in pooled.crops:
         base = solo_by[crop.key]
         denied = crop.kwh_hvac_denied + crop.kwh_light_denied
+        # A bed with no harvest has no yuan/kg.  Both its absolute unit cost
+        # (0 from the ledger guard) and any ratio built on it are meaningless,
+        # so keep the arithmetic harmless but mark the row incomparable.
+        comparable = base.yield_kg > 1e-9 and crop.yield_kg > 1e-9
         # Each resource has its own capacity and its own units.  A single
         # kWh-denominated ratio cannot see a starved well or an empty fertigation
         # tank, so score the four markets separately and let the tightest one
@@ -426,7 +436,7 @@ def _compare(solo: ArmResult, pooled: ArmResult) -> tuple[CropComparison, ...]:
                 label=crop.label,
                 solo_unit_cost=base.unit_cost,
                 pooled_unit_cost=crop.unit_cost,
-                delta_unit=_relative(crop.unit_cost, base.unit_cost),
+                delta_unit=_relative(crop.unit_cost, base.unit_cost) if comparable else 0.0,
                 solo_yield=base.yield_kg,
                 pooled_yield=crop.yield_kg,
                 delta_yield=_relative(crop.yield_kg, base.yield_kg),
@@ -440,6 +450,7 @@ def _compare(solo: ArmResult, pooled: ArmResult) -> tuple[CropComparison, ...]:
                 # Below a tenth of revenue the ratio says more about the
                 # denominator than about the change.
                 margin_flat=abs(base.margin_yuan) < 0.10 * max(1e-9, base.revenue_yuan),
+                comparable=comparable,
             )
         )
     return tuple(comparisons)
@@ -462,7 +473,10 @@ def _verdict(
             abs(_relative(crop.yield_kg, base.yield_kg)),
         )
 
-    deltas = [item.delta_unit for item in comparisons]
+    # A zero-yield bed has no unit cost at all; folding its placeholder 0 into
+    # the spread would both understate differentiation and invent a rank.
+    scored = [item for item in comparisons if item.comparable]
+    deltas = [item.delta_unit for item in scored]
     spread = max(deltas) - min(deltas) if deltas else 0.0
     # House-wide denial per resource.  Summing kWh_th with kWh_e or with m³
     # would mix units and let a starved well disappear behind a slack grid, so
@@ -492,8 +506,8 @@ def _verdict(
     top = max(comparisons, key=lambda item: item.pressure) if comparisons else None
     binding_crop = top.label if top is not None else "—"
     rho = _spearman(
-        [item.denied_share for item in comparisons],
-        [item.delta_unit for item in comparisons],
+        [item.denied_share for item in scored],
+        [item.delta_unit for item in scored],
     )
     differentiated = spread > MIN_UNIT_SHIFT and max(map(abs, deltas), default=0.0) > MIN_UNIT_SHIFT
     null_ok = null_gap <= NULL_TOLERANCE
@@ -511,8 +525,8 @@ def _verdict(
     else:
         share = top.denied_share if top is not None else 0.0
         summary = (
-            f"通过：缺口集中在{binding_crop}（最紧资源 {binding_resource}，逾配 {pressure:.0%}，"
-            f"占总超配 {share:.0%}），"
+            f"通过：缺口集中在{binding_crop}（该作物逾配 {pressure:.0%}，占电热缺口 {share:.0%}），"
+            f"全屋最紧资源 {binding_resource}（逾配 {average_pressure:.0%}），"
             f"单位成本变动极差 {spread:.1%}，秩相关 {rho:+.2f}——"
             "竞争按边际价值排序，而不是平摊。"
         )

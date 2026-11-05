@@ -93,7 +93,10 @@ class CropSnapshot:
                 "overhead": round(self.cost_overhead, 3),
                 "total": round(self.cost_total, 3),
             },
-            "unit_cost": round(self.unit_cost, 4),
+            # The ledger guard returns 0 for a bed with no harvest; that is a
+            # placeholder, not "free to produce".  Publish null so JSON readers
+            # cannot rank a total loss as the cheapest crop.
+            "unit_cost": round(self.unit_cost, 4) if self.yield_kg > 1e-9 else None,
             "resources": {
                 "kwh_light": round(self.kwh_light, 3),
                 "kwh_hvac": round(self.kwh_hvac, 3),

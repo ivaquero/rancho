@@ -31,6 +31,27 @@ GROWTH_LABELS: dict[str, str] = {
     "farm": "CropForge 农场 · 市场与物理迭代",
 }
 
+#: What the growth backend actually computes, for the report's model-boundary
+#: note.  The first-phase proxy and the CropForge backends differ in *kind*,
+#: not just in accuracy, so a single hard-coded sentence misdescribes two of
+#: the three runs.
+GROWTH_METHODS: dict[str, str] = {
+    "analytic": (
+        "作物生长用温度基数曲线 + 饱和光响应 + FAO-56 根区胁迫的简化代理，只用于给竞价定价；"
+        "产量不是本原型的结论，单位是「折产量」。"
+    ),
+    "cropforge": (
+        "产量由 CropForge 蔬菜插件逐日算出：Beer-Lambert 截获 × 辐射利用效率，"
+        "再按收获指数、商品率与干物质率折成市场可售鲜重；温度只推动冠层物候，"
+        "品质损伤与 Ks / Kn 由本层补齐。"
+    ),
+    "farm": (
+        "产量由 CropForge 农场季真跑得出：6×6 网格、辐射钩子与逐日引擎，"
+        "整季 ±10 % 光照重跑后对逐日干物质做中心差分，测出的光响应再反馈给市场迭代。"
+        "可售鲜重与插件后端共用同一套折算。"
+    ),
+}
+
 CROP_COLORS: Final[dict[str, str]] = {
     "tomato": "#c2410c",
     "cucumber": "#15803d",
@@ -97,7 +118,10 @@ th:first-child,td:first-child{text-align:left}
 thead th{font-size:11.5px;color:var(--muted);font-weight:600;letter-spacing:.03em;
 text-transform:uppercase;border-bottom:1px solid #cfd8d2}
 tbody tr:hover{background:#f4f7f4}
-.pos{color:#b91c1c}.neg{color:#15803d}
+/* Semantic deltas, not numeric signs: a rise in unit cost is bad, a rise in
+   yield or margin is good.  Sharing one class for all three used to paint a
+   bumper harvest the same warning red as a cost overrun. */
+.good{color:#15803d}.bad{color:#b91c1c}
 .note{font-size:12.5px;color:var(--muted);max-width:70ch}
 code{font:12px ui-monospace,SFMono-Regular,Menlo,monospace;background:#eef2ee;
 padding:1px 5px;border-radius:4px}
@@ -159,7 +183,7 @@ def render_html(result: ProbeResult, *, title: str) -> str:
     ]
     for regime in result.regimes:
         body.append(_regime_section(regime))
-    body.append(_method_footer())
+    body.append(_method_footer(result.growth))
     return (
         '<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">'
         f"<title>{html.escape(title)}</title><style>{CSS}</style></head>"
@@ -407,14 +431,25 @@ def _comparison_table(regime: RegimeResult) -> str:
     )
     rows = []
     for item in regime.comparisons:
+        # A bed with no harvest has no yuan/kg; printing the ledger guard's 0
+        # would rank a total loss as the cheapest crop in the house.
+        solo_u = f"{item.solo_unit_cost:.2f}" if item.comparable else "—"
+        pooled_u = f"{item.pooled_unit_cost:.2f}" if item.comparable else "—"
+        delta_u = (
+            f'<td class="{_delta_class(item.delta_unit, higher_is_better=False)}">'
+            f"{item.delta_unit * 100:+.1f}%</td>"
+            if item.comparable
+            else "<td>—</td>"
+        )
         rows.append(
             "<tr>"
             f"<td>{html.escape(item.label)}</td>"
-            f"<td>{item.solo_unit_cost:.2f}</td>"
-            f"<td>{item.pooled_unit_cost:.2f}</td>"
-            f'<td class="{_sign(item.delta_unit)}">{item.delta_unit * 100:+.1f}%</td>'
-            f'<td class="{_sign(item.delta_yield)}">{item.delta_yield * 100:+.1f}%</td>'
-            f'<td class="{_sign(item.delta_margin_yuan)}">'
+            f"<td>{solo_u}</td>"
+            f"<td>{pooled_u}</td>"
+            + delta_u
+            + f'<td class="{_delta_class(item.delta_yield, higher_is_better=True)}">'
+            f"{item.delta_yield * 100:+.1f}%</td>"
+            f'<td class="{_delta_class(item.delta_margin_yuan, higher_is_better=True)}">'
             f"{_margin_change(item)}</td>"
             f"<td>{item.pressure * 100:.0f}%</td>"
             + (f"<td>{pooled[item.key].lai:.2f}</td>" if canopy else "")
@@ -423,7 +458,8 @@ def _comparison_table(regime: RegimeResult) -> str:
     return (
         f"<table>{head}<tbody>{''.join(rows)}</tbody></table>"
         '<p class="note">单位成本是「元/kg 折产量」，不是售价；毛利 = 折产量 × 售价 − 可变成本，'
-        "产量尚未实现销售，因此读作「当期应计」。</p>"
+        "产量尚未实现销售，因此读作「当期应计」。绝收（产量为零）的畦没有单位成本，"
+        "该行以「—」标记，不参与极差与秩相关。绿色表示改善，红色表示恶化。</p>"
     )
 
 
@@ -451,12 +487,16 @@ def _scarcity_figure(regime: RegimeResult) -> str:
     return first + second
 
 
-def _method_footer() -> str:
+def _method_footer(growth: str) -> str:
+    method = GROWTH_METHODS.get(
+        growth,
+        "作物生长按所选产量后端计算，其余决策逻辑与清算规则不随后端改变。",
+    )
     return (
         "<footer>"
-        "<p><b>模型边界。</b>作物生长用温度基数曲线 + 饱和光响应 + FAO-56 根区胁迫的"
-        "简化代理，只用于给竞价定价；产量不是本原型的结论，单位是「折产量」。"
-        "第二阶段把这里的代理替换为 CropForge 的逐日干物质增量，其余决策逻辑不变。</p>"
+        f"<p><b>模型边界（{html.escape(GROWTH_LABELS.get(growth, growth))}）。</b>{html.escape(method)}</p>"
+        "<p>报价、清算、账本与判据对三种产量后端一视同仁；产量不是本原型的结论，"
+        "单位是「折产量」（市场可售鲜重）。</p>"
         "<p><b>三臂含义。</b>solo = 容量 ×10⁴；pooled = 实际容量；null = 容量 ×10³，"
         "必须与 solo 逐位一致，否则说明分配器本身有偏。</p>"
         "</footer>"
@@ -490,7 +530,12 @@ def _chart(
         return f'<svg viewBox="0 0 {width} {height}"></svg>'
     low, high = min(values), max(values)
     if high - low < 1e-9:
-        high = low + 1.0 if abs(low) < 1e-9 else low * 1.05
+        # A flat series still needs an ordered axis.  Padding symmetrically
+        # with a *positive* amount is essential for negative constants: the
+        # old ``low * 1.05`` turns -5 into -5.25, i.e. a high below the low,
+        # which renders the y-axis upside down.
+        pad = max(1.0, abs(low) * 0.05)
+        low, high = low - pad, high + pad
     margin = (high - low) * 0.08
     high += margin
     low = 0.0 if min(values) >= 0.0 and low - margin < 0.0 else low - margin
@@ -561,12 +606,17 @@ def _dash_style(dash: str | None) -> str:
     return "border-top-style:dashed" if dash else "border-top-style:solid"
 
 
-def _sign(value: float) -> str:
-    if value > 1e-9:
-        return "pos"
-    if value < -1e-9:
-        return "neg"
-    return ""
+def _delta_class(value: float, *, higher_is_better: bool) -> str:
+    """Colour a change by whether it improves the metric, not by its sign.
+
+    Unit cost going up is bad; yield or margin going up is good.  A single
+    sign-based class cannot express both, which is why the old ``.pos``/``.neg``
+    pair painted a good harvest in the same red as a cost overrun.
+    """
+    if abs(value) < 1e-9:
+        return ""
+    improved = value > 0.0 if higher_is_better else value < 0.0
+    return "good" if improved else "bad"
 
 
 def summarize(result: ProbeResult) -> list[dict[str, Any]]:

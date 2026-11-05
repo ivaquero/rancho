@@ -491,9 +491,14 @@ def _econ(args: argparse.Namespace) -> int:
                 if item.margin_flat
                 else f"{item.delta_margin * 100:>8.1f}%"
             )
+            # A zero-yield bed has no yuan/kg.  Keep the row, but do not print
+            # the ledger guard's 0 as if it were a real (and very cheap) cost.
+            solo_u = f"{item.solo_unit_cost:>10.2f}" if item.comparable else f"{'—':>10}"
+            pooled_u = f"{item.pooled_unit_cost:>10.2f}" if item.comparable else f"{'—':>10}"
+            delta_u = f"{item.delta_unit * 100:>9.1f}%" if item.comparable else f"{'—':>10}"
             print(
-                f"{item.label:<6}{item.solo_unit_cost:>10.2f}{item.pooled_unit_cost:>10.2f}"
-                f"{item.delta_unit * 100:>9.1f}%{item.delta_yield * 100:>9.1f}%"
+                f"{item.label:<6}{solo_u}{pooled_u}"
+                f"{delta_u}{item.delta_yield * 100:>9.1f}%"
                 f"{margin}{item.pressure * 100:>7.0f}%"
             )
         print(f"结论     : {regime.verdict.summary}")

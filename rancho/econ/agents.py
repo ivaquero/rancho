@@ -233,6 +233,17 @@ class CropAgent(Agent):
         """Mitscherlich response, floored so a starved crop still transpires."""
         return min(1.0, max(0.18, 1.0 - math.exp(-self.n_kg_ha / N_HALF_SATURATION)))
 
+    def thermal_cop(self, temp_out_c: float) -> float:
+        """COP of the machine this crop's bid would actually run.
+
+        ``quotes_thermal`` has already set the direction and the setpoint, so
+        the house can use the same number to turn a kW_th award into grid load
+        instead of assuming a fixed reference COP.
+        """
+        if self.thermal_sign >= 0.0:
+            return cop_heating(temp_out_c, self.thermal_setpoint_c)
+        return cop_cooling(temp_out_c)
+
     def _day_temp_factor(self) -> float:
         if self.temp_samples == 0:
             return self.spec.temp_factor(self.spec.setpoint(12))
@@ -248,6 +259,7 @@ class CropAgent(Agent):
         hour_of_day: int,
         tariff: float,
         temp_out_c: float,
+        dli_expected: float,
     ) -> list[Quote]:
         """Bid curve for the heat or cold needed to reach this crop's setpoint.
 
@@ -273,7 +285,10 @@ class CropAgent(Agent):
             self.thermal_sign = 0.0
             return []
 
-        dli = self.dli_natural_day + self.dli_supp_day
+        # Price the *whole* day's production, not the light that has arrived so
+        # far.  At 00:00 the accumulated DLI is zero, which used to value the
+        # crop at nothing and leave the coldest hours of the night unheated.
+        dli = dli_expected + self.dli_supp_day
         # Yuan value of one full unit of the temperature factor for one day.
         # The production term comes from the growth backend, so a crop with a
         # closed canopy pays more for the last kelvin than a seedling does.
@@ -632,7 +647,7 @@ class GreenhouseAgent(Agent):
             crop.observe_natural(natural_mol)
 
         thermal_served, shadow_thermal, thermal_demand = self._clear_thermal(
-            passive, hour_of_day, tariff, temp_out
+            passive, hour_of_day, tariff, temp_out, forcing.dli(day)
         )
         light_served, shadow_power, light_demand = self._clear_light(self.dli_left, tariff)
 
@@ -695,19 +710,43 @@ class GreenhouseAgent(Agent):
         hour_of_day: int,
         tariff: float,
         temp_out_c: float,
+        dli_expected: float,
     ) -> tuple[dict[str, float], float, float]:
-        """Climate control gets first claim on the power budget."""
+        """Climate control gets first claim on the power budget — in kW_e.
+
+        Bids are denominated in kW_th but the connection is limited in kW_e.
+        Clearing with a fixed reference COP let a machine running at the worst
+        COP (1.7) draw nearly twice the grid power the auction had budgeted.
+        Each bid is converted through *its own* machine's COP before clearing
+        and converted back for delivery, so ``hvac_kw_electric`` is conserved.
+        """
         quotes = [
             quote
             for crop in self.crops
-            for quote in crop.quotes_thermal(passive_c, hour_of_day, tariff, temp_out_c)
+            for quote in crop.quotes_thermal(
+                passive_c, hour_of_day, tariff, temp_out_c, dli_expected
+            )
         ]
         if not quotes:
             return {}, 0.0, 0.0
 
         usable_power = max(0.0, self.power_cap_kw - self.spec.standing_kw)
-        effective = min(self.thermal_cap_kw, usable_power * COP_REFERENCE)
-        served, shadow = clear(quotes, effective)
+        # Nameplate thermal capacity translated into the electrical budget.
+        capacity = min(usable_power, self.thermal_cap_kw / COP_REFERENCE)
+        cops = {crop.spec.key: crop.thermal_cop(temp_out_c) for crop in self.crops}
+        electric = [
+            Quote(quote.key, quote.quantity / cops[quote.key], quote.value, quote.direction)
+            for quote in quotes
+        ]
+        served_e, shadow = clear(electric, capacity)
+        served = {key: kw_e * cops[key] for key, kw_e in served_e.items()}
+
+        # A machine beating the reference COP can still deliver more kW_th
+        # than the plant is rated for; scale the whole award back to nameplate.
+        total_thermal = sum(served.values())
+        if total_thermal > self.thermal_cap_kw:
+            factor = self.thermal_cap_kw / total_thermal
+            served = {key: value * factor for key, value in served.items()}
 
         requested, denied = denied_by_crop(quotes, served)
         for crop in self.crops:
@@ -747,7 +786,15 @@ class GreenhouseAgent(Agent):
         quotes = [quote for crop in self.crops for quote in crop.quotes_water(et0_mm, dli_expected)]
         if not quotes:
             return 0.0
-        served, shadow = clear(quotes, self.water_cap_m3)
+        # The well's pump draws from the same grid connection.  Water is
+        # cleared at STOCK_HOUR, after thermal and lighting have taken their
+        # share, so the volume the well can deliver is bounded by the power
+        # still available for pumping — pumping energy used to be billed but
+        # never reserved against the connection.
+        used_kw = sum(crop.hvac_kw_electric + crop.light_kw for crop in self.crops)
+        pump_headroom_kw = max(0.0, self.power_cap_kw - self.spec.standing_kw - used_kw)
+        capacity = min(self.water_cap_m3, pump_headroom_kw / PUMP_KWH_PER_M3)
+        served, shadow = clear(quotes, capacity)
         _requested, denied = denied_by_crop(quotes, served)
         for crop in self.crops:
             key = crop.spec.key
