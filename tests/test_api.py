@@ -16,6 +16,7 @@ with the scenario model.
 from __future__ import annotations
 
 import asyncio
+import gzip
 import json
 from datetime import date
 from pathlib import Path
@@ -25,7 +26,7 @@ from fastapi import HTTPException
 
 import rancho.api as api_module
 from rancho.api import RunRequest, _resolve, create_app
-from rancho.frames import MODEL_VERSION
+from rancho.frames import MODEL_VERSION, SCHEMA_VERSION
 from rancho.scenario import DEFAULT_PRESET, PRESETS, ScenarioConfig
 from rancho.weather import ARCHIVE_URL, OpenMeteoClient, WeatherError
 
@@ -72,6 +73,56 @@ def _request(app, method: str, path: str, body: dict[str, Any] | None = None) ->
 
 def _app(tmp_path: Path):
     return create_app(tmp_path)
+
+
+def _raw_request(
+    app, method: str, path: str, *, accept_encoding: str | None = None
+) -> tuple[int, dict[str, str], bytes]:
+    """Drive one GET without a body and return ``(status, headers, raw_bytes)``.
+
+    Unlike :func:`_request` this keeps the response headers and the undecoded
+    body, so a test can check what encoding the server chose rather than only
+    the parsed JSON — exactly the thing the gzip byte-replay path changes.
+    """
+    headers = [
+        (b"host", b"test"),
+        (b"content-type", b"application/json"),
+        (b"content-length", b"0"),
+    ]
+    if accept_encoding is not None:
+        headers.append((b"accept-encoding", accept_encoding.encode()))
+
+    async def _run() -> list[dict[str, Any]]:
+        scope = {
+            "type": "http",
+            "asgi": {"version": "3.0"},
+            "http_version": "1.1",
+            "method": method,
+            "scheme": "http",
+            "path": path,
+            "raw_path": path.encode(),
+            "query_string": b"",
+            "root_path": "",
+            "client": ("test", 0),
+            "server": ("test", 80),
+            "headers": headers,
+        }
+        messages: list[dict[str, Any]] = []
+
+        async def receive() -> dict[str, Any]:
+            return {"type": "http.request", "body": b"", "more_body": False}
+
+        async def send(message: dict[str, Any]) -> None:
+            messages.append(message)
+
+        await app(scope, receive, send)
+        return messages
+
+    messages = asyncio.run(_run())
+    start = next(m for m in messages if m["type"] == "http.response.start")
+    response_headers = {k.decode().lower(): v.decode() for k, v in start["headers"]}
+    body = b"".join(m.get("body", b"") for m in messages if m["type"] == "http.response.body")
+    return start["status"], response_headers, body
 
 
 def test_health_reports_the_version(tmp_path) -> None:
@@ -185,3 +236,44 @@ def test_weather_cache_keys_match_the_request_precision(tmp_path) -> None:
     assert a is not None and b is not None and a != b
     url = client._build_url(ARCHIVE_URL, 13.69004, -89.22004, start, end)
     assert "latitude=13.6900" in url and "13.6900" in a.name
+
+
+def _seed_bundle(tmp_path) -> dict[str, Any]:
+    """Put one fresh, correctly-stamped bundle where ``create_app`` will find it."""
+    from rancho.store import RunStore
+
+    bundle = {
+        "id": "cafebabe",
+        "created_at": "2026-01-01T00:00:00+00:00",
+        "meta": {"rows": 4, "cols": 4},
+        "yield": {"t_per_ha": 1.0},
+        "frames": [{"day": 1}],
+        "schema_version": SCHEMA_VERSION,
+        "model_version": MODEL_VERSION,
+    }
+    RunStore(
+        tmp_path / "bundles",
+        schema_version=SCHEMA_VERSION,
+        model_version=MODEL_VERSION,
+    ).put(bundle)
+    return bundle
+
+
+def test_a_gzip_client_gets_the_stored_bytes_back_verbatim(tmp_path) -> None:
+    """A cache hit replays the on-disk gzip, so the body is gzipped and tagged."""
+    bundle = _seed_bundle(tmp_path)
+    status, headers, body = _raw_request(
+        _app(tmp_path), "GET", "/api/runs/cafebabe", accept_encoding="gzip, deflate"
+    )
+    assert status == 200
+    assert headers.get("content-encoding") == "gzip"
+    assert json.loads(gzip.decompress(body)) == bundle
+
+
+def test_a_non_gzip_client_falls_back_to_plain_json(tmp_path) -> None:
+    """Without gzip in the request we never force an encoding the client cannot eat."""
+    bundle = _seed_bundle(tmp_path)
+    status, headers, body = _raw_request(_app(tmp_path), "GET", "/api/runs/cafebabe")
+    assert status == 200
+    assert "content-encoding" not in headers
+    assert json.loads(body) == bundle

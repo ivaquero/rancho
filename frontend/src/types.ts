@@ -204,6 +204,36 @@ export function decodeChannel(
   return target;
 }
 
+/** The 6-bit value of the base64 character at `pos`, or 0 past the end. */
+function sextetAt(payload: string, pos: number): number {
+  return pos >= payload.length ? 0 : LOOKUP[payload.charCodeAt(pos)];
+}
+
+/**
+ * Decode a single cell's value without inflating the whole channel.
+ *
+ * The wire packs three bytes per four base64 characters, so the byte for cell
+ * ``index`` sits in character group ``floor(index / 3) * 4`` at offset
+ * ``index % 3``.  We rebuild just that one sextet group and dequantize it with
+ * the same ``low + byte * (high - low) / 255`` as :func:`decodeChannel`, so the
+ * two must stay byte-for-byte consistent.  Hovering one cell then costs a
+ * handful of character reads instead of a full-grid ``Float32Array`` rebuild.
+ */
+export function decodeCell(payload: string, domain: [number, number], index: number): number {
+  const base = Math.floor(index / 3) * 4;
+  const within = index % 3;
+  const q0 = sextetAt(payload, base);
+  const q1 = sextetAt(payload, base + 1);
+  const q2 = sextetAt(payload, base + 2);
+  const q3 = sextetAt(payload, base + 3);
+  let byte: number;
+  if (within === 0) byte = ((q0 << 2) | (q1 >> 4)) & 0xff;
+  else if (within === 1) byte = ((q1 << 4) | (q2 >> 2)) & 0xff;
+  else byte = ((q2 << 6) | q3) & 0xff;
+  const [low, high] = domain;
+  return low + byte * ((high - low) / 255);
+}
+
 export const CROP_LABELS: Record<string, string> = {
   wheat: "冬小麦",
   maize: "玉米",

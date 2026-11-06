@@ -9,6 +9,9 @@ export const CROP_CHANNEL = "crop";
 const PLANTS_PER_CELL = 6;
 const GROUND_SHADE = 0.74;
 const MAX_TERRAIN_LIFT = 1.0;
+/** Shared up-axis for the per-plant spin. `setFromAxisAngle` only reads it, so
+ * one instance stands in for the vector the plant loop used to allocate. */
+const Y_AXIS = new THREE.Vector3(0, 1, 0);
 
 /** Deterministic per-cell jitter so the planting pattern is stable across frames. */
 function hash(row: number, col: number, salt: number): number {
@@ -612,7 +615,7 @@ export class FieldScene {
           elevation,
           -depth / 2 + (row + 0.5) * cell + jitterZ,
         );
-        quaternion.setFromAxisAngle(new THREE.Vector3(0, 1, 0), spin);
+        quaternion.setFromAxisAngle(Y_AXIS, spin);
         const breadth = cell * (0.44 + 0.14 * hash(row, col, k + 7));
         scale.set(breadth, height * (0.82 + 0.36 * hash(row, col, k + 11)), breadth);
         matrix.compose(position, quaternion, scale);

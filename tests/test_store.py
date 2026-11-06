@@ -9,6 +9,7 @@ every day, and the grid the sliders allow ships roughly 19 MB of JSON, so
 
 from __future__ import annotations
 
+import gzip
 import json
 
 import pytest
@@ -98,6 +99,38 @@ def test_a_damaged_bundle_on_disk_is_a_miss_not_an_error(tmp_path) -> None:
     # Bytes that are neither valid gzip nor valid JSON.
     (tmp_path / "deadbeef.json.gz").write_bytes(b"\x1f\x8b not really gzip at all")
     assert store.get("deadbeef") is None
+
+
+def test_get_gz_replays_the_on_disk_gzip_verbatim(tmp_path) -> None:
+    """A fresh hit hands back the stored ``.json.gz`` bytes, byte for byte."""
+    store = RunStore(tmp_path)
+    store.put(_bundle("aaaa"))
+    raw = store.get_gz("aaaa")
+    assert raw is not None
+    assert raw == (tmp_path / "aaaa.json.gz").read_bytes()
+    assert json.loads(gzip.decompress(raw)) == _bundle("aaaa")
+
+
+def test_get_gz_refuses_a_stale_version(tmp_path) -> None:
+    """Freshness comes from the sidecar, so an old model never leaks through."""
+    writer = RunStore(tmp_path)
+    old = _bundle("oldmodel")
+    old["schema_version"] = SCHEMA_VERSION
+    old["model_version"] = MODEL_VERSION - 1
+    writer.put(old)
+
+    current = RunStore(tmp_path, schema_version=SCHEMA_VERSION, model_version=MODEL_VERSION)
+    assert current.get_gz("oldmodel") is None
+
+
+def test_get_gz_is_a_miss_for_unknown_or_unsafe_ids(tmp_path) -> None:
+    """A missing sidecar or an escaping id is a clean miss, never a stray read."""
+    store = RunStore(tmp_path)
+    outside = tmp_path / "outside.json.gz"
+    outside.write_bytes(b"keep me")
+    assert store.get_gz("nope") is None
+    assert store.get_gz("..\\outside") is None
+    assert outside.exists()
 
 
 def test_a_stale_schema_version_is_never_served(tmp_path) -> None:

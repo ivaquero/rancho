@@ -17,6 +17,7 @@ import {
   type Lang,
 } from "./i18n";
 import {
+  decodeCell,
   decodeChannel,
   type Bundle,
   type CropOption,
@@ -95,6 +96,8 @@ class App {
   private paletteSignature = "";
   private running = false;
   private readonly channelBuffers = new Map<string, Float32Array>();
+  /** Which cell + day the tooltip text was last built for, to skip rebuilds. */
+  private tooltipKey = "";
   /** Status line, kept separately so a language flip can re-render it. */
   private statusKind:
     | "connecting"
@@ -249,6 +252,10 @@ class App {
   /** Re-render every language-dependent string after the UI language flips. */
   private applyLanguage(): void {
     applyDataI18n();
+    // The tooltip is memoized per cell, so drop that memo when the language
+    // changes; the next hover then re-renders its labels in the new tongue even
+    // if the pointer never leaves the current cell.
+    this.tooltipKey = "";
     this.renderStatus();
     this.renderGridHint();
     this.renderDaysHint();
@@ -586,6 +593,9 @@ class App {
   private applyBundle(bundle: Bundle): void {
     this.bundle = bundle;
     this.channelBuffers.clear();
+    // A new run changes every cell's values; drop the tooltip memo so the next
+    // hover rebuilds instead of replaying the previous run's numbers.
+    this.tooltipKey = "";
     this.index = 0;
     this.scene.load(bundle, this.channel);
     this.scene.setExaggeration(Number(el<HTMLInputElement>("exaggerate").value));
@@ -916,12 +926,33 @@ class App {
     const bundle = this.bundle;
     if (!info || !bundle) {
       tooltip.hidden = true;
+      this.tooltipKey = "";
       return;
     }
+    // The tooltip tracks the cursor on every move; that is just two style
+    // writes.  What is expensive is the text and the cell lookups behind it,
+    // so those are rebuilt only when the hovered cell or the shown day changes.
+    tooltip.style.left = `${info.clientX}px`;
+    tooltip.style.top = `${info.clientY}px`;
+    const key = `${info.row},${info.col},${this.index}`;
+    if (key === this.tooltipKey) {
+      tooltip.hidden = false;
+      return;
+    }
+    this.tooltipKey = key;
+
+    const frame = bundle.frames[this.index];
     const index = info.row * bundle.grid.cols + info.col;
-    const lines: string[] = [
-      t("tooltip.cell", [bundle.frames[this.index].day, info.row + 1, info.col + 1]),
-    ];
+    // Decode just this one cell, not the whole grid: the payload is a byte per
+    // cell, so the value the tooltip shows costs a single base64 sextet group.
+    const cellValue = (channel: string): number => {
+      const meta = bundle.channels[channel];
+      const payload = frame?.ch[channel];
+      if (!meta || !payload) return Number.NaN;
+      return decodeCell(payload, meta.domain, index);
+    };
+
+    const lines: string[] = [t("tooltip.cell", [frame.day, info.row + 1, info.col + 1])];
     const planted = this.cropMap[info.row * this.cols + info.col];
     if (planted) {
       const crop = this.crops.find((crop) => crop.key === planted);
@@ -929,23 +960,21 @@ class App {
       lines.push(`${t("tooltip.crop")} ${label}`);
     }
     for (const name of ["lai", "biomass", "moisture", "nitrogen", "stress", "disease"]) {
-      const values = this.cellValues(name);
       const meta = bundle.channels[name];
       if (!meta) continue;
-      lines.push(`${this.channelName(name)} ${format(values[index], 2)} ${meta.unit}`);
+      lines.push(`${this.channelName(name)} ${format(cellValue(name), 2)} ${meta.unit}`);
     }
-    const stage = this.cellValues("stage")[index];
+    // One stage read serves both the label line and the colour dot.
+    const stage = cellValue("stage");
     if (Number.isFinite(stage)) {
       const stageMeta = bundle.stages[Math.round(stage)];
       const label = stageMeta ? this.stageName(stageMeta) : undefined;
       if (label) lines.push(`${t("tooltip.stage")} ${label}`);
     }
-    const dot = stageColor(this.cellValues("stage")[index] ?? 0);
+    const dot = stageColor(Number.isFinite(stage) ? stage : 0);
     const tone = `rgb(${Math.round(dot[0] * 255)} ${Math.round(dot[1] * 255)} ${Math.round(dot[2] * 255)})`;
     tooltip.innerHTML = `<span style="color:${tone}">●</span> ${lines.join("\n")}`;
     tooltip.hidden = false;
-    tooltip.style.left = `${info.clientX}px`;
-    tooltip.style.top = `${info.clientY}px`;
   }
 
   private togglePlay(): void {

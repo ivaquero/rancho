@@ -95,6 +95,41 @@ class RunStore:
         self._remember(run_id, bundle)
         return bundle
 
+    def _read_meta(self, run_id: str) -> dict[str, Any] | None:
+        """Parse the small ``.meta.json`` sidecar, or ``None`` if it is absent."""
+        try:
+            text = self._meta_path(run_id).read_text(encoding="utf-8")
+        except OSError:
+            return None
+        try:
+            parsed: Any = json.loads(text)
+        except ValueError:
+            return None
+        return parsed if isinstance(parsed, dict) else None
+
+    def get_gz(self, run_id: str) -> bytes | None:
+        """Return a stored bundle as raw gzip bytes, ready to replay verbatim.
+
+        A cache hit served this way skips two costs the ordinary ``get`` pays:
+        re-inflating and re-parsing a multi-megabyte bundle, and the response
+        layer re-compressing JSON that is already gzipped on disk.  We read the
+        ``.json.gz`` straight through and hand it to a ``Content-Encoding: gzip``
+        response untouched.  Freshness is judged from the tiny sidecar instead of
+        inflating the whole bundle, so a stale run never leaks through.  Anything
+        that is not a clean fresh hit — bad id, missing or corrupt sidecar, stale
+        stamp, unreadable bundle — returns ``None`` so the caller falls back to
+        the ordinary path and stays correct.
+        """
+        if not valid_run_id(run_id):
+            return None
+        meta = self._read_meta(run_id)
+        if meta is None or self._stale(meta):
+            return None
+        try:
+            return self._bundle_path(run_id).read_bytes()
+        except OSError:
+            return None
+
     @staticmethod
     def _atomic_write(path: Path, text: str) -> None:
         """Write *text* so a reader never sees a half-written file.

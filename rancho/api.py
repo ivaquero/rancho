@@ -7,9 +7,9 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -77,6 +77,26 @@ def create_app(work_root: Path, dist_dir: Path | None = None) -> FastAPI:
         openapi_url="/api/openapi.json",
     )
     app.add_middleware(GZipMiddleware, minimum_size=1024)
+
+    def _cached_bundle(run_id: str, http_request: Request) -> Response | dict[str, Any] | None:
+        """Serve a stored run, preferring a raw gzip replay on a cache hit.
+
+        When the client accepts gzip we hand back the ``.json.gz`` bytes exactly
+        as written: no inflate, no re-encode, and the middleware leaves a body
+        that already declares ``Content-Encoding`` alone, so nothing recompresses
+        it either.  A client that did not ask for gzip (or a run whose gzip copy
+        is stale/unreadable) falls back to the decoded bundle and the ordinary
+        JSON + gzip-middleware path, which is correct if slower.
+        """
+        if "gzip" in http_request.headers.get("accept-encoding", "").lower():
+            raw = store.get_gz(run_id)
+            if raw is not None:
+                return Response(
+                    content=raw,
+                    media_type="application/json",
+                    headers={"Content-Encoding": "gzip"},
+                )
+        return store.get(run_id)
 
     @app.get("/api/health")
     def health() -> dict[str, Any]:
@@ -187,14 +207,14 @@ def create_app(work_root: Path, dist_dir: Path | None = None) -> FastAPI:
     def list_runs() -> list[dict[str, Any]]:
         return store.summaries()
 
-    @app.post("/api/runs")
-    def create_run(request: RunRequest) -> dict[str, Any]:
+    @app.post("/api/runs", response_model=None)
+    def create_run(request: RunRequest, http_request: Request) -> Response | dict[str, Any]:
         config = _resolve(request)
         run_id = run_id_for(config)
-        cached = store.get(run_id)
-        if cached is not None:
+        hit = _cached_bundle(run_id, http_request)
+        if hit is not None:
             logger.info("cache hit %s", run_id)
-            return cached
+            return hit
 
         logger.info(
             "simulating %s (%dx%d, %d days, %s)",
@@ -224,9 +244,9 @@ def create_app(work_root: Path, dist_dir: Path | None = None) -> FastAPI:
         store.put(bundle)
         return bundle
 
-    @app.get("/api/runs/{run_id}")
-    def get_run(run_id: str) -> dict[str, Any]:
-        bundle = store.get(run_id) if valid_run_id(run_id) else None
+    @app.get("/api/runs/{run_id}", response_model=None)
+    def get_run(run_id: str, http_request: Request) -> Response | dict[str, Any]:
+        bundle = _cached_bundle(run_id, http_request) if valid_run_id(run_id) else None
         if bundle is None:
             raise HTTPException(status_code=404, detail=f"未知运行：{run_id}")
         return bundle
