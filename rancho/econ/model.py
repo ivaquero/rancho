@@ -159,7 +159,7 @@ class GreenhouseModel(Model):
         self.crop_agents: tuple[CropAgent, ...] = tuple(agents)
         self.greenhouse = GreenhouseAgent(self, greenhouse, agents, cap_scale=cap_scale)
 
-    def step(self) -> None:  # ty: ignore[invalid-method-override]
+    def step(self) -> None:
         """Advance the market by one hour, then close the day if it is over.
 
         Mesa types ``Model.step`` through a descriptor that ty reads as a free

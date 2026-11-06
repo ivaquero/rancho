@@ -46,7 +46,6 @@ Three numbers worth remembering when reading the output:
 from __future__ import annotations
 
 import os
-import threading
 from collections.abc import Sequence
 from dataclasses import dataclass, field, replace
 from datetime import date, timedelta
@@ -58,7 +57,7 @@ from cropforge import Crop, Farm, Field, Weather
 from cropforge.loaders import Soil
 
 from rancho.agronomy import CROP_WATER
-from rancho.cropforge_acl import init_field_state, quiet_state_logger
+from rancho.cropforge_acl import RUN_LOCK, init_field_state, quiet_state_logger
 from rancho.econ.growth import (
     PLUGINS,
     GrowthFactory,
@@ -88,10 +87,6 @@ _SOIL_HEADER = (
 _LAYERS = ((0, 20), (20, 50), (50, 90))
 #: Synthetic seasons have no calendar; the plugin only reads the day counter.
 _EPOCH = date(2026, 1, 1)
-
-#: CropForge writes its Parquet log relative to the working directory, so runs
-#: are serialised — ``chdir`` is process-wide.
-_RUN_LOCK = threading.Lock()
 
 
 @dataclass(frozen=True, slots=True)
@@ -343,7 +338,7 @@ def _simulate(
         farm.step(phase=5)(snapshot)
 
         previous = Path.cwd()
-        with _RUN_LOCK, quiet_state_logger():
+        with RUN_LOCK, quiet_state_logger():
             os.chdir(tmp)
             try:
                 farm.run(days=days)

@@ -10,8 +10,8 @@ the WebGL client renders.
 from __future__ import annotations
 
 import hashlib
+import logging
 import os
-import threading
 import time
 from collections.abc import Generator
 from contextlib import contextmanager
@@ -27,7 +27,7 @@ from cropforge.plugins.wheat import StandardWheat
 
 from rancho.agronomy import AgronomyModel
 from rancho.climate import build_soil_field, write_soil_csv
-from rancho.cropforge_acl import latest_session_dir
+from rancho.cropforge_acl import RUN_LOCK, latest_session_dir
 from rancho.crops import TEMPLATES
 from rancho.frames import MODEL_VERSION, SCHEMA_VERSION, build_bundle
 from rancho.mosaic import CropMosaic
@@ -44,7 +44,7 @@ PLUGINS: dict[str, type] = {
     **VEGETABLE_PLUGINS,
 }
 
-_RUN_LOCK = threading.Lock()
+logger = logging.getLogger("rancho.engine")
 
 
 class RunBusyError(RuntimeError):
@@ -63,12 +63,12 @@ def _engine_slot(wait: bool = True) -> Generator[None]:
     allow takes minutes, and a request queued behind it is indistinguishable
     from a hung server — a refusal is something the caller can act on.
     """
-    if not _RUN_LOCK.acquire(blocking=wait):
+    if not RUN_LOCK.acquire(blocking=wait):
         raise RunBusyError("已有仿真在运行，请等它结束后再试")
     try:
         yield
     finally:
-        _RUN_LOCK.release()
+        RUN_LOCK.release()
 
 
 def _templates_fingerprint() -> str:
@@ -255,6 +255,7 @@ def run_scenario(
     try:
         yield_summary: dict[str, Any] | None = farm.yield_summary()
     except Exception:  # a missing yield summary must not sink the whole run
+        logger.warning("yield_summary failed for %s", run_id, exc_info=True)
         yield_summary = None
 
     return build_bundle(

@@ -14,22 +14,32 @@ stays ignorant of what actually changed upstream.
 
 from __future__ import annotations
 
+import threading
 from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Final
+from typing import Any, Final, Protocol
 
 from cropforge import Field
 from cropforge._plugins_base import CropPlugin, register_crop
 from cropforge.logger import StateLogger
 
 __all__ = [
+    "RUN_LOCK",
     "CropPlugin",
     "init_field_state",
     "latest_session_dir",
     "quiet_state_logger",
     "register_crop",
 ]
+
+#: CropForge's ``StateLogger`` resolves its Parquet log from the *process*
+#: working directory, so a run must own that directory while it lasts — and the
+#: logger-quieting in :func:`quiet_state_logger` is likewise process-global.
+#: Both the HTTP engine and the offline ``econ`` probe take this one lock, so a
+#: web run can never have its working directory yanked out from under it or,
+#: worse, silently inherit a probe's quieted logger from a concurrent run.
+RUN_LOCK: Final = threading.Lock()
 
 #: ``Farm.run`` writes its partitioned Parquet log under this fixed directory,
 #: relative to the *process* working directory.  The name is not configurable,
@@ -51,7 +61,26 @@ def latest_session_dir(work_dir: Path) -> Path:
     return sessions[-1]
 
 
-def init_field_state(field_: Field, day: int = 1) -> Any:
+class PlantState(Protocol):
+    """The shape of one plant inside a field state.
+
+    Only the attributes the transplanted-seedling start touches are declared —
+    enough to make :func:`init_field_state` return something checkable instead of
+    ``Any`` while staying decoupled from CropForge's own (private) state classes.
+    """
+
+    lai: float
+    phenological_stage: str
+    custom: dict[str, object]
+
+
+class FieldState(Protocol):
+    """A CropForge field state: the plants a season starts from."""
+
+    plants: list[PlantState]
+
+
+def init_field_state(field_: Field, day: int = 1) -> FieldState:
     """Build the field state a season starts from, through CropForge's private seam.
 
     ``Field._init_field_state`` is the very hook CropForge's own

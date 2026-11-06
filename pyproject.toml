@@ -6,7 +6,7 @@ readme = "README.md"
 requires-python = ">=3.14"
 authors = [{ name = "ivaquero", email = "msaintms@outlook.com" }]
 dependencies = [
-  "cropforge>=1.0.1,<2",
+  "cropforge>=1.0.1,<1.1",
   "fastapi>=0.159.1",
   "mesa>=3.5.1",
   "networkx>=3.7",

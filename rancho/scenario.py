@@ -16,7 +16,7 @@ from typing import Literal, TypedDict
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from rancho.crops import TEMPLATES
-from rancho.i18n import localize
+from rancho.i18n import BASE_LANG, localize
 
 #: Crops whose phenology CropForge ships on its own, so they have coefficients
 #: but no growth model of Rancho's own.
@@ -86,7 +86,7 @@ class CropProfile:
     @property
     def label(self) -> str:
         """The base-language name — what ledgers, reports and the CLI print."""
-        return self.labels["zh"]
+        return self.labels[BASE_LANG]
 
 
 #: Crop → product description.  Kept next to the scenario because yield is a

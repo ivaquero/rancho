@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from rancho import __version__
+from rancho.i18n import BASE_LANG
 from rancho.scenario import DEFAULT_PRESET, PRESETS, ScenarioConfig, horizon_days
 
 # ``cropforge`` 在 import 阶段就会拉进 ``fastapi.middleware.wsgi``（只为了它自带的
@@ -290,7 +291,7 @@ def _simulate(args: argparse.Namespace) -> int:
     print(f"grid     : {meta['rows']} × {meta['cols']} cells, {meta['area_ha']} ha")
     print(f"horizon  : {meta['days']} days, seed {meta['seed']}, {meta['elapsed_s']} s")
     if weather:
-        print(f"weather  : {weather['labels']['zh']} · {weather['start']} → {weather['end']}")
+        print(f"weather  : {weather['labels'][BASE_LANG]} · {weather['start']} → {weather['end']}")
     print(f"final    : LAI {last['lai']:.2f}, 生物量 {last['biomass']:.1f} g/株")
     planted = bundle["yield"]["crops"]
     print(
@@ -298,7 +299,7 @@ def _simulate(args: argparse.Namespace) -> int:
         f"（面积加权，{len(planted)} 种作物，{bundle['yield']['total_kg']:.0f} kg 合计）"
     )
     for row in planted:
-        name = row["labels"]["zh"]
+        name = row["labels"][BASE_LANG]
         print(
             f"           {name:<4} {row['cells']:>5} 格 "
             f"({row['share'] * 100:>4.1f}%) · {row['t_per_ha']:>7.2f} t/ha · "
@@ -310,7 +311,7 @@ def _simulate(args: argparse.Namespace) -> int:
 
 def _print_weather(series: Any) -> None:
     meta = series.meta()
-    print(f"来源     : {meta['labels']['zh']}（{meta['provider']}）")
+    print(f"来源     : {meta['labels'][BASE_LANG]}（{meta['provider']}）")
     if meta["grid"]:
         print(
             f"网格点   : {meta['grid'][0]}, {meta['grid'][1]} · 海拔 {meta['elevation_m']} m"
@@ -397,8 +398,8 @@ def _presets() -> int:
     for key, preset in PRESETS.items():
         config = ScenarioConfig.model_validate(preset["config"])
         source = "实测" if config.weather.source == "open-meteo" else "合成"
-        print(f"{key:<14} {preset['labels']['zh']}  [{source}气象]")
-        print(f"{'':<14} {preset['descriptions']['zh']}")
+        print(f"{key:<14} {preset['labels'][BASE_LANG]}  [{source}气象]")
+        print(f"{'':<14} {preset['descriptions'][BASE_LANG]}")
     return 0
 
 

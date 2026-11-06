@@ -17,7 +17,7 @@ import numpy as np
 import pandas as pd
 
 from rancho.crops import STAGE_ORDER
-from rancho.i18n import labels_from, localize
+from rancho.i18n import BASE_LANG, labels_from, localize
 from rancho.scenario import (
     CROP_PROFILES,
     STAGE_LABELS,
@@ -41,7 +41,7 @@ class ChannelSpec:
     @property
     def label(self) -> str:
         """Base-language channel name."""
-        return self.labels["zh"]
+        return self.labels[BASE_LANG]
 
 
 CHANNELS: Final[tuple[ChannelSpec, ...]] = (

@@ -22,7 +22,7 @@ from typing import Final
 
 import numpy as np
 
-from rancho.i18n import localize
+from rancho.i18n import LANGUAGES, localize
 from rancho.scenario import ClimateKind, SoilKind, SoilPattern
 from rancho.weather import WeatherDay, WeatherSeries
 
@@ -191,14 +191,11 @@ def generate_weather(
         )
 
     band = CLIMATE_LABELS[climate]
+    prefix = localize("合成气候", en="Synthetic", es="Sintético")
     return WeatherSeries(
         days=tuple(series),
         source="synthetic",
-        labels=localize(
-            f"合成气候 · {band['zh']}",
-            en=f"Synthetic · {band['en']}",
-            es=f"Sintético · {band['es']}",
-        ),
+        labels={lang: f"{prefix[lang]} · {band[lang]}" for lang in LANGUAGES},
         provider="Rancho 合成气候",
     )
 

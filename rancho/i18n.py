@@ -27,17 +27,22 @@ BASE_LANG: Final = "zh"
 LANGUAGES: Final = ("zh", "en", "es")
 
 
-def localize(zh: str, *, en: str | None = None, es: str | None = None) -> dict[str, str]:
-    """Build a complete language map from a Chinese base and optional variants.
+def localize(base: str, /, **variants: str | None) -> dict[str, str]:
+    """Build a complete language map from a base name and optional variants.
 
-    Missing variants fall back along ``es → en → zh`` — the same chain the client
-    walks when a language has not been translated yet — so an untranslated
-    Spanish name still reads English rather than Chinese for a Spanish visitor.
-    The result always carries every key in :data:`LANGUAGES`.
+    Walking :data:`LANGUAGES` in order, each language takes the variant supplied
+    for it or, when missing, the previously resolved value — so an untranslated
+    Spanish name still reads English, and everything still reads the base when
+    nothing else is given.  The result always carries every key in
+    :data:`LANGUAGES`, and adding a language means adding it to that tuple,
+    never editing this function.
     """
-    english = en or zh
-    spanish = es or english
-    return {"zh": zh, "en": english, "es": spanish}
+    resolved: dict[str, str] = {}
+    previous = base
+    for language in LANGUAGES:
+        previous = variants.get(language) or previous
+        resolved[language] = previous
+    return resolved
 
 
 def labels_from(

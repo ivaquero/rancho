@@ -32,7 +32,7 @@ from pathlib import Path
 from typing import Any, Final
 
 from rancho import __version__
-from rancho.i18n import localize
+from rancho.i18n import BASE_LANG, localize
 from rancho.scenario import ScenarioConfig, WeatherSource, horizon_days
 
 #: Column order CropForge expects; the unit of each column is in the name.
@@ -116,7 +116,7 @@ class WeatherSeries:
     @property
     def label(self) -> str:
         """Base-language provenance name — what the CLI prints for a series."""
-        return self.labels["zh"]
+        return self.labels[BASE_LANG]
 
     def summary(self) -> dict[str, float | int]:
         """Season-level aggregates — the numbers worth printing or charting."""

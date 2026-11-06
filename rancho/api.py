@@ -215,6 +215,12 @@ def create_app(work_root: Path, dist_dir: Path | None = None) -> FastAPI:
             # failure.  It is an upstream outage, not a broken simulation, so
             # report it as 502 exactly like /api/weather does.
             raise HTTPException(status_code=502, detail=str(exc)) from exc
+        except Exception as exc:
+            # Anything else is a genuine engine/frames fault.  Log it with the
+            # run id so a half-finished regression leaves a trace instead of a
+            # silent bare 500, then surface a typed server error.
+            logger.exception("simulation %s failed", run_id)
+            raise HTTPException(status_code=500, detail="仿真失败，详见服务器日志") from exc
         store.put(bundle)
         return bundle
 

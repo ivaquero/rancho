@@ -45,7 +45,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
-from rancho.i18n import BASE_LANG, localize
+from rancho.i18n import BASE_LANG, LANGUAGES, localize
 
 #: Canonical phenological stage order shared by all crops.  Only the stages a
 #: crop actually passes through appear in a run; the list is a superset so that
@@ -220,20 +220,22 @@ class CropTemplate(_Strict):
         """
         if not isinstance(data, dict):
             return data
+        variants = [lang for lang in LANGUAGES if lang != BASE_LANG]
         if isinstance(data.get("labels"), dict):
             given: dict[str, str] = dict(data["labels"])
         elif isinstance(data.get("label"), str):
-            given = localize(data["label"], en=data.get("label_en"), es=data.get("label_es"))
+            legacy = {lang: data.get(f"label_{lang}") for lang in variants}
+            given = localize(data["label"], **legacy)
         else:
             return data  # no name anywhere: let the required-field error surface
         base = given.get(BASE_LANG)
         if not base:
             raise ValueError(f"labels 必须包含基础语言 {BASE_LANG!r} 的名字")
-        complete = localize(base, en=given.get("en"), es=given.get("es"))
+        complete = localize(base, **{lang: given.get(lang) for lang in variants})
         complete.update(given)
         folded = {**data, "labels": complete}
-        for legacy in ("label", "label_en", "label_es"):
-            folded.pop(legacy, None)
+        for name in ("label", *(f"label_{lang}" for lang in variants)):
+            folded.pop(name, None)
         return folded
 
     @model_validator(mode="after")
