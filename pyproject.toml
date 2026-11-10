@@ -57,7 +57,7 @@ docstring-code-format = true
 include = ["rancho", "tests"]
 
 [tool.ty.rules]
-unresolved-attribute = "warn"
+missing-attribute = "warn"
 
 [tool.uv.build-backend]
 module-root = ""
